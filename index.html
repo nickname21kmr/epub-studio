@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>页间 · 图文 EPUB 工坊</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='8' fill='%231f211c'/%3E%3Cpath d='M14 13h10v38H14zm13 5h10v33H27zm13 7h10v26H40z' fill='%23d9ff43'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="页间首页">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span><b>页间</b><small>EPUB STUDIO</small></span>
+      </a>
+      <div class="privacy-note"><span aria-hidden="true">●</span> 文件只在本机浏览器中处理</div>
+    </header>
+
+    <main id="top">
+      <section class="intro">
+        <p class="eyebrow">TEXT × IMAGE × EPUB 3</p>
+        <h1>把散落的文字与图片，<br /><em>编成一本真正的电子书。</em></h1>
+        <p class="intro-copy">导入 TXT、Markdown 与常见图片，排列章节，选择封面，然后导出可供 Apple Books、Calibre、Kobo 等阅读器打开的 EPUB。</p>
+        <div class="intro-actions">
+          <button class="button button-dark" id="new-text-button" type="button">＋ 新建文字章节</button>
+          <button class="button button-light" id="load-sample-button" type="button">载入示例</button>
+        </div>
+      </section>
+
+      <section class="workspace" aria-label="EPUB 编辑工作区">
+        <aside class="book-settings">
+          <div class="panel-heading">
+            <span>01</span>
+            <div><p>BOOK INFO</p><h2>书籍信息</h2></div>
+          </div>
+
+          <label class="field">
+            <span>书名 <b aria-label="必填">*</b></span>
+            <input id="book-title" type="text" value="未命名图文集" maxlength="120" />
+          </label>
+          <label class="field">
+            <span>作者</span>
+            <input id="book-author" type="text" placeholder="你的名字" maxlength="120" />
+          </label>
+          <div class="field-row">
+            <label class="field">
+              <span>语言</span>
+              <select id="book-language">
+                <option value="zh-CN">简体中文</option>
+                <option value="zh-TW">繁體中文</option>
+                <option value="ja">日本語</option>
+                <option value="en">English</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>出版社</span>
+              <input id="book-publisher" type="text" placeholder="可选" maxlength="120" />
+            </label>
+          </div>
+          <label class="field">
+            <span>简介</span>
+            <textarea id="book-description" rows="4" placeholder="会写入电子书元数据"></textarea>
+          </label>
+
+          <div class="mini-rule"></div>
+          <p class="support-title">支持的内容</p>
+          <ul class="support-list">
+            <li><span>文字</span> TXT · MD</li>
+            <li><span>图片</span> JPG · PNG · GIF · WEBP · SVG</li>
+            <li><span>输出</span> EPUB 3</li>
+          </ul>
+        </aside>
+
+        <section class="content-builder">
+          <div class="panel-heading content-heading">
+            <span>02</span>
+            <div><p>CONTENTS</p><h2>编排内容</h2></div>
+            <div class="content-stats" id="content-stats">0 个条目 · 0 字</div>
+          </div>
+
+          <div class="import-toolbar" aria-label="导入工具">
+            <button class="import-button" id="import-text-button" type="button">
+              <span class="import-icon">T</span>
+              <span><b>导入文本</b><small>TXT / Markdown</small></span>
+            </button>
+            <button class="import-button" id="import-image-button" type="button">
+              <span class="import-icon image-icon">▧</span>
+              <span><b>导入图片</b><small>可一次选择多张</small></span>
+            </button>
+            <button class="import-button subtle" id="open-project-button" type="button">
+              <span class="import-icon">↗</span>
+              <span><b>打开工程</b><small>.epubproj.json</small></span>
+            </button>
+          </div>
+
+          <input id="text-files" type="file" accept=".txt,.md,text/plain,text/markdown" multiple hidden />
+          <input id="image-files" type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/svg+xml" multiple hidden />
+          <input id="project-file" type="file" accept=".json,.epubproj.json,application/json" hidden />
+
+          <div class="drop-zone" id="drop-zone">
+            <div class="empty-state" id="empty-state">
+              <div class="empty-art" aria-hidden="true"><span></span><span></span><span></span></div>
+              <h3>从第一章开始</h3>
+              <p>把文本或图片拖到这里，也可以使用上方按钮导入。</p>
+            </div>
+            <ol class="content-list" id="content-list" aria-label="书籍内容顺序"></ol>
+          </div>
+        </section>
+      </section>
+
+      <section class="export-bar">
+        <div class="export-copy">
+          <p>03 · EXPORT</p>
+          <h2>准备好，就把它装订起来。</h2>
+        </div>
+        <div class="project-actions">
+          <button class="text-button danger" id="clear-button" type="button">清空</button>
+          <button class="button button-light" id="save-project-button" type="button">保存工程</button>
+          <button class="button button-accent" id="export-button" type="button">导出 EPUB <span>→</span></button>
+        </div>
+      </section>
+
+      <p class="status" id="status" role="status" aria-live="polite"></p>
+    </main>
+
+    <dialog id="text-dialog">
+      <form method="dialog" id="text-form">
+        <div class="dialog-heading">
+          <div><p>NEW CHAPTER</p><h2>新建文字章节</h2></div>
+          <button class="icon-button" value="cancel" aria-label="关闭" formnovalidate>×</button>
+        </div>
+        <label class="field">
+          <span>章节标题</span>
+          <input id="chapter-title" type="text" value="新章节" required maxlength="120" />
+        </label>
+        <label class="field">
+          <span>正文 <small>支持标题、列表、粗体、引用等基础 Markdown</small></span>
+          <textarea id="chapter-content" rows="13" placeholder="# 小标题&#10;&#10;从这里开始写作……" required></textarea>
+        </label>
+        <div class="dialog-actions">
+          <button class="button button-light" value="cancel" formnovalidate>取消</button>
+          <button class="button button-dark" id="text-submit-button" value="default">加入书稿</button>
+        </div>
+      </form>
+    </dialog>
+
+    <template id="item-template">
+      <li class="content-card">
+        <button class="drag-handle" type="button" draggable="true" aria-label="拖动调整顺序">⠿</button>
+        <div class="item-index"></div>
+        <div class="item-preview"></div>
+        <div class="item-fields"></div>
+        <div class="item-actions"></div>
+      </li>
+    </template>
+
+    <script src="epub-core.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

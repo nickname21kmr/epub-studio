@@ -1,0 +1,9 @@
+{
+  "name": "epub-studio",
+  "version": "1.0.0",
+  "private": true,
+  "description": "零依赖、纯浏览器运行的图文 EPUB 3 制作工具",
+  "scripts": {
+    "test": "node tests/test_core.js"
+  }
+}
