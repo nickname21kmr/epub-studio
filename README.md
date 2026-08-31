@@ -1,5 +1,7 @@
 # 页间 · 图文 EPUB 工坊
 
+> **English overview** — A local-first, zero-dependency browser editor for combining TXT/Markdown and images into valid EPUB 3 books. It supports chapter ordering, captions and alt text, cover selection, project save/restore, and structural validation. Content stays in the browser and is not uploaded.
+
 一个零依赖、纯浏览器运行的 EPUB 3 制作工具。文本和图片都只在本机处理，不会上传到服务器。
 
 ## 立即使用
