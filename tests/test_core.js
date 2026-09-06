@@ -73,6 +73,11 @@ const epub = buildEpub(book, {
   identifier: "urn:uuid:00000000-0000-4000-8000-000000000001",
   modified: "2026-08-30T00:00:00Z",
 });
+const epubView = new DataView(epub.buffer, epub.byteOffset, epub.byteLength);
+const expectedZipDate = ((2026 - 1980) << 9) | (8 << 5) | 30;
+assert.equal(epubView.getUint16(10, true), 0, "ZIP time should follow the fixed EPUB modification time");
+assert.equal(epubView.getUint16(12, true), expectedZipDate, "ZIP date should be reproducible across runs");
+assert.throws(() => buildEpub(book, { modified: "not-a-date" }), /修改时间必须是有效日期/);
 const entries = readStoredZip(epub);
 const names = [...entries.keys()];
 const decode = (name) => new TextDecoder().decode(entries.get(name));

@@ -50,12 +50,12 @@ function crc32(data) {
 }
 
 function dosDateTime(date = new Date()) {
-  const year = Math.max(1980, date.getFullYear());
+  const year = Math.min(2107, Math.max(1980, date.getUTCFullYear()));
   const time =
-    (date.getHours() << 11) |
-    (date.getMinutes() << 5) |
-    Math.floor(date.getSeconds() / 2);
-  const day = ((year - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate();
+    (date.getUTCHours() << 11) |
+    (date.getUTCMinutes() << 5) |
+    Math.floor(date.getUTCSeconds() / 2);
+  const day = ((year - 1980) << 9) | ((date.getUTCMonth() + 1) << 5) | date.getUTCDate();
   return { time, date: day };
 }
 
@@ -69,11 +69,13 @@ function view(size) {
  * EPUB requires the mimetype entry to be first and uncompressed; storing every
  * entry keeps the app dependency-free and works well for already-compressed images.
  */
-function buildZip(entries) {
+function buildZip(entries, timestamp = new Date()) {
+  const archiveDate = timestamp instanceof Date ? timestamp : new Date(timestamp);
+  if (Number.isNaN(archiveDate.getTime())) throw new TypeError("ZIP 时间戳必须是有效日期");
   const localParts = [];
   const centralParts = [];
   let localOffset = 0;
-  const stamp = dosDateTime();
+  const stamp = dosDateTime(archiveDate);
 
   for (const entry of entries) {
     const name = encoder.encode(entry.name.replaceAll("\\", "/"));
@@ -307,7 +309,9 @@ function buildEpub(book, options = {}) {
   const author = String(book.author || "").trim();
   const language = String(book.language || "zh-CN").trim() || "zh-CN";
   const identifier = String(book.identifier || options.identifier || makeIdentifier());
-  const modified = options.modified || new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+  const modifiedDate = options.modified === undefined ? new Date() : new Date(options.modified);
+  if (Number.isNaN(modifiedDate.getTime())) throw new Error("EPUB 修改时间必须是有效日期");
+  const modified = modifiedDate.toISOString().replace(/\.\d{3}Z$/, "Z");
   const images = new Map();
   const pages = [];
   const manifest = [];
@@ -429,7 +433,7 @@ nav a { color: inherit; text-decoration: none; }`;
     { name: "EPUB/nav.xhtml", data: nav },
     { name: "EPUB/styles/book.css", data: css },
     ...entries,
-  ]);
+  ], modifiedDate);
 }
 
 const EpubCore = Object.freeze({

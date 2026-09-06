@@ -55,4 +55,4 @@ node tests/test_core.js
 python tests/validate_epub.py
 ```
 
-第一条命令同时生成 `sample/验证样书.epub`；第二条会用 Python 标准库打开 ZIP，并解析所有 XML/XHTML 文件。
+第一条命令同时生成 `sample/验证样书.epub`，并验证固定修改时间会产生稳定的 ZIP 时间戳；第二条会用 Python 标准库打开 ZIP，并解析所有 XML/XHTML 文件。
