@@ -126,6 +126,17 @@ function addMeta(fields, text) {
   return meta;
 }
 
+function addToggle(container, label, checked, onChange) {
+  const wrapper = document.createElement("label");
+  wrapper.className = "item-toggle";
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.checked = checked;
+  input.addEventListener("change", () => onChange(input.checked));
+  wrapper.append(input, label);
+  container.append(wrapper);
+}
+
 let draggedId = null;
 
 function renderItems() {
@@ -192,6 +203,19 @@ function renderItems() {
         }),
       );
     }
+
+    // Off for continuation segments of a chapter that is split by illustrations.
+    const options = document.createElement("div");
+    options.className = "item-options";
+    addToggle(options, "列入目录", item.toc !== false, (checked) => {
+      item.toc = checked;
+    });
+    if (item.type === "text") {
+      addToggle(options, "显示标题", item.showTitle !== false, (checked) => {
+        item.showTitle = checked;
+      });
+    }
+    fields.append(options);
 
     actions.append(makeButton("上移", "move-item", () => moveItem(item.id, -1)));
     actions.append(makeButton("下移", "move-item", () => moveItem(item.id, 1)));

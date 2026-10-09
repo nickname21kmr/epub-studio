@@ -442,10 +442,9 @@ function buildEpub(book, options = {}) {
   const hasCover = book.coverItemId !== undefined && book.coverItemId !== null;
   const images = [];
   let cover = null;
-  const pages = [];
   const manifest = [];
   const spine = [];
-  const navItems = [];
+  const navEntries = [];
   const entries = [];
 
   book.items.forEach((item, index) => {
@@ -457,7 +456,9 @@ function buildEpub(book, options = {}) {
     let body;
 
     if (item.type === "text") {
-      body = `<article class="text-section">\n<h1>${escapeXml(itemTitle)}</h1>\n${textToXhtml(item)}\n</article>`;
+      // showTitle: false hides the visible heading; the <title> stays.
+      const heading = item.showTitle === false ? "" : `<h1>${escapeXml(itemTitle)}</h1>\n`;
+      body = `<article class="text-section">\n${heading}${textToXhtml(item)}\n</article>`;
     } else {
       // Keyed by position, not item.id, so images without ids are all kept.
       const data = imageBytes(item);
@@ -477,11 +478,15 @@ function buildEpub(book, options = {}) {
       name: `EPUB/text/${pageName}`,
       data: xhtmlDocument(itemTitle, body, item.type === "image" ? "image-page" : "text-page", language),
     });
-    pages.push({ id: pageId, name: pageName, title: itemTitle });
     manifest.push(`<item id="${pageId}" href="text/${pageName}" media-type="application/xhtml+xml" />`);
     spine.push(`<itemref idref="${pageId}" />`);
-    navItems.push(`<li><a href="text/${pageName}">${escapeXml(itemTitle)}</a></li>`);
+    navEntries.push({ href: `text/${pageName}`, title: itemTitle, listed: item.toc !== false });
   });
+
+  // toc: false leaves an item out of the nav, but the nav may not be an empty list.
+  const listed = navEntries.filter((entry) => entry.listed);
+  const navItems = (listed.length ? listed : navEntries.slice(0, 1))
+    .map((entry) => `<li><a href="${entry.href}">${escapeXml(entry.title)}</a></li>`);
 
   if (cover) {
     entries.push({

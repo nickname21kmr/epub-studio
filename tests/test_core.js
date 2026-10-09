@@ -203,6 +203,34 @@ assert.equal(mimeFromFilename("插图/01.JPG"), "image/jpeg");
   assert.match(read("EPUB/text/section-001.xhtml"), /<p>\*\*原样\*\*<\/p>\n<hr class="scene-break" \/>\n<p>下一行<\/p>/);
   assert.match(read("EPUB/text/section-002.xhtml"), /<p><strong>粗体<\/strong><\/p>/);
 }
+{
+  // toc: false leaves the nav; showTitle: false drops the <h1> but keeps <title>.
+  const read = unzipText(buildEpub({
+    title: "目录",
+    items: [
+      { type: "text", title: "第一章", content: "前半" },
+      { type: "image", title: "插图", toc: false, mimeType: "image/png", data: png },
+      { type: "text", title: "第一章（续）", toc: false, showTitle: false, content: "后半" },
+    ],
+  }, fixed));
+  const nav = read("EPUB/nav.xhtml");
+  assert.match(nav, /<ol><li><a href="text\/section-001.xhtml">第一章<\/a><\/li><\/ol>/);
+  const continued = read("EPUB/text/section-003.xhtml");
+  assert.match(continued, /<title>第一章（续）<\/title>/);
+  assert.doesNotMatch(continued, /<h1>/);
+  assert.match(read("EPUB/text/section-001.xhtml"), /<h1>第一章<\/h1>/);
+}
+{
+  // Every item excluded: the first page is still listed.
+  const read = unzipText(buildEpub({
+    title: "空目录",
+    items: [
+      { type: "text", title: "甲", toc: false, content: "a" },
+      { type: "text", title: "乙", toc: false, content: "b" },
+    ],
+  }, fixed));
+  assert.match(read("EPUB/nav.xhtml"), /<ol><li><a href="text\/section-001.xhtml">甲<\/a><\/li><\/ol>/);
+}
 assert.deepEqual(
   validateBook({ title: "x", items: [{ type: "image", name: "a.bmp", mimeType: "image/jpeg", data: new TextEncoder().encode("BM....") }] }),
   ["不支持图片格式：a.bmp"],
