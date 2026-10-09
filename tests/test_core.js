@@ -288,6 +288,10 @@ assert.deepEqual(
   validateBook({ title: "x", items: [{ type: "image", name: "a.bmp", mimeType: "image/jpeg", data: new TextEncoder().encode("BM....") }] }),
   ["不支持图片格式：a.bmp"],
 );
+assert.deepEqual(validateBook({ title: "x", language: "中文", items: [{ type: "text" }] }), ["语言代码无效：中文（例如 zh-CN、ja、en）"]);
+for (const language of ["zh-CN", "zh-Hant-TW", "ja", "en", ""]) {
+  assert.deepEqual(validateBook({ title: "x", language, items: [{ type: "text" }] }), [], language);
+}
 assert.deepEqual(
   validateBook({ title: "x", items: [{ type: "image", name: "空.png", mimeType: "image/png", data: new Uint8Array() }] }),
   ["图片没有数据：空.png"],

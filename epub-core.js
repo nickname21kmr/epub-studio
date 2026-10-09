@@ -412,6 +412,11 @@ function validateBook(book) {
   const errors = [];
   if (!String(book?.title || "").trim()) errors.push("请填写书名");
   if (!Array.isArray(book?.items) || book.items.length === 0) errors.push("请至少添加一个文本章节或一张图片");
+  // dc:language and lang attributes must be BCP 47 tags, or EPUBCheck rejects every page.
+  const language = cleanText(book?.language);
+  if (language && !/^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$/.test(language)) {
+    errors.push(`语言代码无效：${language}（例如 zh-CN、ja、en）`);
+  }
   for (const item of book?.items || []) {
     if (item.type === "image") {
       const data = imageBytes(item);
