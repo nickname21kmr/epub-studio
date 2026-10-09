@@ -582,6 +582,7 @@ const EpubCore = Object.freeze({
   buildZip,
   decodeText,
   escapeXml,
+  makeIdentifier,
   markdownToXhtml,
   mimeFromFilename,
   plainTextToXhtml,

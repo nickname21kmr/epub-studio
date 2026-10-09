@@ -4,6 +4,7 @@ const path = require("node:path");
 const {
   buildEpub,
   decodeText,
+  makeIdentifier,
   markdownToXhtml,
   mimeFromFilename,
   plainTextToXhtml,
@@ -67,6 +68,7 @@ const book = {
 assert.deepEqual(validateBook(book), []);
 assert.deepEqual(validateBook({ title: "", items: [] }), ["请填写书名", "请至少添加一个文本章节或一张图片"]);
 assert.equal(suggestedFilename('一本:书?'), "一本-书-.epub");
+assert.match(makeIdentifier(), /^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
 
 const markdown = markdownToXhtml("# 标题\n\n<script>bad()</script>\n\n**粗体**");
 assert.match(markdown, /<h1>标题<\/h1>/);

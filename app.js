@@ -1,14 +1,19 @@
 /* global EpubCore */
 
-const state = {
-  title: "未命名图文集",
-  author: "",
-  language: "zh-CN",
-  publisher: "",
-  description: "",
-  coverItemId: null,
-  items: [],
-};
+function emptyBook() {
+  return {
+    title: "未命名图文集",
+    author: "",
+    language: "zh-CN",
+    publisher: "",
+    description: "",
+    identifier: "",
+    coverItemId: null,
+    items: [],
+  };
+}
+
+const state = emptyBook();
 
 const elements = {
   title: document.querySelector("#book-title"),
@@ -78,7 +83,12 @@ function syncBookFromFields() {
 function syncFieldsFromBook() {
   elements.title.value = state.title || "";
   elements.author.value = state.author || "";
-  elements.language.value = state.language || "zh-CN";
+  const language = state.language || "zh-CN";
+  // Keep languages that are not in the list (e.g. "ja-JP" from a project file).
+  if (![...elements.language.options].some((option) => option.value === language)) {
+    elements.language.add(new Option(language, language));
+  }
+  elements.language.value = language;
   elements.publisher.value = state.publisher || "";
   elements.description.value = state.description || "";
 }
@@ -370,8 +380,14 @@ function serializableBook() {
   };
 }
 
+// One identifier per book, so a re-export updates the same book in readers.
+function ensureIdentifier() {
+  if (!state.identifier) state.identifier = EpubCore.makeIdentifier();
+}
+
 function saveProject() {
   try {
+    ensureIdentifier();
     const project = {
       format: "epub-studio-project",
       version: 1,
@@ -399,7 +415,8 @@ async function openProject(file) {
     throw new Error("这不是受支持的页间工程文件");
   }
   releaseImageUrls();
-  Object.assign(state, project.book);
+  // Start from defaults so fields missing in older projects don't keep the previous book's values.
+  Object.assign(state, emptyBook(), project.book);
   state.items = (project.book.items || []).map((item) => {
     const restored = { ...item };
     if (restored.type === "image") {
@@ -420,6 +437,7 @@ function exportEpub() {
     const errors = EpubCore.validateBook(state);
     if (errors.length) throw new Error(errors.join("；"));
     setStatus("正在装订 EPUB……");
+    ensureIdentifier();
     const epub = EpubCore.buildEpub(state);
     download(epub, EpubCore.suggestedFilename(state.title), "application/epub+zip");
     setStatus(`导出完成：${EpubCore.suggestedFilename(state.title)}（${formatBytes(epub.length)}）`, "success");
@@ -431,15 +449,7 @@ function exportEpub() {
 function clearBook(ask = true) {
   if (ask && state.items.length && !confirm("要清空当前书稿吗？尚未保存的内容将无法恢复。")) return false;
   releaseImageUrls();
-  Object.assign(state, {
-    title: "未命名图文集",
-    author: "",
-    language: "zh-CN",
-    publisher: "",
-    description: "",
-    coverItemId: null,
-    items: [],
-  });
+  Object.assign(state, emptyBook());
   syncFieldsFromBook();
   renderItems();
   setStatus("书稿已清空。", "");
