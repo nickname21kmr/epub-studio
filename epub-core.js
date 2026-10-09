@@ -27,6 +27,20 @@ function bytes(value) {
   throw new TypeError("ZIP 条目必须是字符串或二进制数据");
 }
 
+/** Decode a text file: BOM first, then strict UTF-8, then GB18030 (a superset of GBK). */
+function decodeText(value) {
+  if (typeof value === "string") return value;
+  const data = bytes(value);
+  if (data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf) return new TextDecoder("utf-8").decode(data.subarray(3));
+  if (data[0] === 0xff && data[1] === 0xfe) return new TextDecoder("utf-16le").decode(data.subarray(2));
+  if (data[0] === 0xfe && data[1] === 0xff) return new TextDecoder("utf-16be").decode(data.subarray(2));
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(data);
+  } catch {
+    return new TextDecoder("gb18030").decode(data);
+  }
+}
+
 function concat(parts) {
   const length = parts.reduce((sum, part) => sum + part.length, 0);
   const output = new Uint8Array(length);
@@ -556,6 +570,7 @@ nav a { color: inherit; text-decoration: none; }`;
 const EpubCore = Object.freeze({
   buildEpub,
   buildZip,
+  decodeText,
   escapeXml,
   markdownToXhtml,
   mimeFromFilename,

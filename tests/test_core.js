@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const {
   buildEpub,
+  decodeText,
   markdownToXhtml,
   mimeFromFilename,
   plainTextToXhtml,
@@ -141,6 +142,20 @@ for (const marker of ["***", "* * *", "---", "◇◇◇", "◆◆◆", "＊＊�
 }
 assert.equal(plainTextToXhtml("——\n**"), "<p>——</p>\n<p>**</p>");
 assert.equal(plainTextToXhtml("甲\u0001\n\u0001\n乙"), "<p>甲</p>\n<p>乙</p>");
+
+// Text decoding: BOMs, strict UTF-8, then GB18030 for GBK files.
+const utf8 = (text) => Array.from(new TextEncoder().encode(text));
+assert.equal(decodeText(Uint8Array.from([0xd6, 0xd0, 0xce, 0xc4])), "中文");
+assert.equal(
+  decodeText(Uint8Array.from(Buffer.from("b5dad2bbd5c20d0ad6d0cec4a1a3a1b0bac3a1b1", "hex"))),
+  "第一章\r\n中文。“好”",
+);
+assert.equal(decodeText(Uint8Array.from(utf8("中文 ok"))), "中文 ok");
+assert.equal(decodeText(Uint8Array.from([0xef, 0xbb, 0xbf, ...utf8("中文")])), "中文");
+assert.equal(decodeText(Uint8Array.from([0xff, 0xfe, 0x2d, 0x4e, 0x87, 0x65])), "中文");
+assert.equal(decodeText(Uint8Array.from([0xfe, 0xff, 0x4e, 0x2d, 0x65, 0x87])), "中文");
+assert.equal(decodeText(new Uint8Array()), "");
+assert.equal(decodeText("已是字符串"), "已是字符串");
 
 const fixed = {
   identifier: "urn:uuid:00000000-0000-4000-8000-000000000002",

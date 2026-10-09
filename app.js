@@ -251,7 +251,8 @@ async function importTextFiles(fileList) {
       type: "text",
       title: basename(file.name),
       format: textFormat(file),
-      content: await file.text(),
+      // file.text() only reads UTF-8; GBK TXT files would become mojibake.
+      content: EpubCore.decodeText(new Uint8Array(await file.arrayBuffer())),
       sourceName: file.name,
     });
   }
