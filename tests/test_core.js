@@ -1,6 +1,8 @@
 const assert = require("node:assert/strict");
+const childProcess = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { loadBook } = require("../cli.js");
 const {
   buildEpub,
   decodeText,
@@ -295,5 +297,71 @@ const sampleDirectory = path.resolve(__dirname, "../sample");
 fs.mkdirSync(sampleDirectory, { recursive: true });
 const samplePath = path.join(sampleDirectory, "验证样书.epub");
 fs.writeFileSync(samplePath, epub);
+
+// Command line: book.json with file paths -> EPUB. Also writes the CJK sample.
+const cli = path.resolve(__dirname, "../cli.js");
+const fixture = path.join(__dirname, "fixtures/novel/book.json");
+const novelPath = path.join(sampleDirectory, "春天的约定.epub");
+const run = (...args) => childProcess.spawnSync(process.execPath, [cli, ...args], { encoding: "utf8" });
+{
+  const result = run(fixture, novelPath);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /已生成 .*春天的约定\.epub（5 项/);
+  const novel = fs.readFileSync(novelPath);
+  const again = buildEpub(...Object.values(loadBook(fixture)));
+  assert.equal(Buffer.compare(novel, Buffer.from(again)), 0, "fixed identifier and modified give identical files");
+
+  const files = readStoredZip(novel);
+  const read = (name) => new TextDecoder().decode(files.get(name));
+  const opf = read("EPUB/package.opf");
+  // coverFile matches the first item: cover page only, no second copy.
+  assert.ok(!files.has("EPUB/text/section-001.xhtml"));
+  assert.match(opf, /<item id="image-1" href="images\/image-1.png" media-type="image\/png" properties="cover-image" \/>/);
+  // illust-01.jpg is really a PNG.
+  assert.match(opf, /<item id="image-3" href="images\/image-3.png" media-type="image\/png" \/>/);
+  assert.match(opf, /<dc:identifier id="BookId">urn:uuid:00000000-0000-4000-8000-0000000000c1<\/dc:identifier>/);
+  assert.match(opf, /<meta property="dcterms:modified">2026-10-10T00:00:00Z<\/meta>/);
+  assert.match(opf, /<dc:contributor id="translator">译者甲<\/dc:contributor>/);
+  assert.equal(
+    read("EPUB/nav.xhtml").match(/<ol>[\s\S]*<\/ol>/)[0],
+    '<ol><li><a href="text/cover.xhtml">封面</a></li>\n'
+      + '<li><a href="text/section-002.xhtml">第一章 春天的约定</a></li>\n'
+      + '<li><a href="text/section-005.xhtml">后记</a></li></ol>',
+  );
+  const first = read("EPUB/text/section-002.xhtml");
+  assert.match(first, /<article class="text-section indent">\n<h1>第一章 春天的约定<\/h1>\n<p>四月的第一个星期，樱花还没有落完。<\/p>\n<p>“明天见。”她说完，转身跑进了雨里。<\/p>\n<p>……<\/p>/);
+  assert.match(first, /<hr class="scene-break" \/>/);
+  const continued = read("EPUB/text/section-004.xhtml");
+  assert.match(continued, /<title>第一章 春天的约定（续）<\/title>/);
+  assert.doesNotMatch(continued, /<h1>/);
+  assert.match(continued, /<p>“这一段用 GBK 保存，导入时不应该变成乱码。”<\/p>\n<hr class="scene-break" \/>/);
+  assert.match(read("EPUB/text/section-005.xhtml"), /<p>这一章用 <strong>Markdown<\/strong> 写成，换行处不会多出空格。<\/p>/);
+}
+{
+  // A coverFile outside the items is put first, without a TOC entry.
+  const directory = fs.mkdtempSync(path.join(sampleDirectory, ".cli-"));
+  try {
+    fs.copyFileSync(path.join(__dirname, "fixtures/novel/images/cover.png"), path.join(directory, "front.png"));
+    const write = (config) => {
+      fs.writeFileSync(path.join(directory, "book.json"), JSON.stringify(config));
+      return path.join(directory, "book.json");
+    };
+    const { book } = loadBook(write({ title: "封面另放", coverFile: "front.png", items: [{ type: "text", content: "正文" }] }));
+    assert.deepEqual(book.items.map((item) => [item.id, item.type, item.toc]), [["cover-file", "image", false], ["item-1", "text", undefined]]);
+    assert.equal(book.coverItemId, "cover-file");
+    assert.equal(book.items[1].format, undefined, "inline content stays Markdown");
+
+    const missing = run(write({ title: "x", items: [{ type: "image", file: "nope.png" }] }), path.join(directory, "x.epub"));
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, /装订失败：第 1 项：读不到文件 nope.png/);
+    assert.throws(() => loadBook(write({ title: "x", items: [{ id: "a", type: "text" }, { id: "a", type: "text" }] })), /id 重复：a/);
+    assert.throws(() => loadBook(write({ title: "x", coverItemId: "nope", items: [{ type: "text" }] })), /coverItemId 没有对应的图片/);
+    assert.equal(run().status, 1);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+}
+
 console.log(`PASS: ${names.length} ZIP entries validated`);
 console.log(`SAMPLE: ${samplePath}`);
+console.log(`SAMPLE: ${novelPath}`);

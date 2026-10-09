@@ -4,6 +4,7 @@
   "private": true,
   "description": "零依赖、纯浏览器运行的图文 EPUB 3 制作工具",
   "scripts": {
-    "test": "node tests/test_core.js"
+    "test": "node tests/test_core.js",
+    "epub": "node cli.js"
   }
 }

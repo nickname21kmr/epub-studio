@@ -1,0 +1,3 @@
+*.epub binary
+# Fixture bytes matter (GB18030 text, images); no line-ending conversion.
+tests/fixtures/** -text
