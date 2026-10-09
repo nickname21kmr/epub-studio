@@ -90,7 +90,7 @@ assert.equal(markdownToXhtml("甲\u000c乙\u0001丙\u0000CODE0\u0000丁"), "<p>�
 assert.equal(markdownToXhtml("𠀀\ud800"), "<p>𠀀</p>");
 // "* * *" and "- - -" are rules, not list items.
 for (const rule of ["***", "* * *", "- - -", "___"]) {
-  assert.equal(markdownToXhtml(`前文\n\n${rule}\n\n后文`), "<p>前文</p>\n<hr />\n<p>后文</p>");
+  assert.equal(markdownToXhtml(`前文\n\n${rule}\n\n后文`), '<p>前文</p>\n<hr class="scene-break" />\n<p>后文</p>');
 }
 assert.equal(markdownToXhtml("- 甲\n- 乙"), "<ul>\n<li>甲</li>\n<li>乙</li>\n</ul>");
 
@@ -254,6 +254,24 @@ assert.equal(mimeFromFilename("插图/01.JPG"), "image/jpeg");
   assert.doesNotMatch(opf, /id="page-1"/);
   assert.match(opf, /<spine>\n<itemref idref="cover-page" linear="yes" \/>\n<itemref idref="page-2" \/>\n<\/spine>/);
   assert.match(read("EPUB/nav.xhtml"), /<ol><li><a href="text\/cover.xhtml">封面<\/a><\/li>\n<li><a href="text\/section-002.xhtml">正文<\/a><\/li><\/ol>/);
+}
+{
+  // paragraphIndent follows the language unless set; only body paragraphs are indented.
+  const page = (book) => unzipText(buildEpub({
+    title: "缩进",
+    items: [{ type: "text", title: "章", content: "段落" }],
+    ...book,
+  }, fixed))("EPUB/text/section-001.xhtml");
+  assert.match(page({ language: "zh-CN" }), /<article class="text-section indent">/);
+  assert.match(page({ language: "ja" }), /<article class="text-section indent">/);
+  assert.match(page({ language: "en" }), /<article class="text-section">/);
+  assert.match(page({ language: "zh-TW", paragraphIndent: false }), /<article class="text-section">/);
+  assert.match(page({ language: "en", paragraphIndent: true }), /<article class="text-section indent">/);
+  assert.match(page({ language: "zha" }), /<article class="text-section">/);
+  const css = unzipText(buildEpub({ title: "x", items: [{ type: "text", content: "x" }] }, fixed))("EPUB/styles/book.css");
+  assert.match(css, /^\.indent > p \{ text-indent: 2em; \}$/m);
+  assert.match(css, /^\.scene-break \{/m);
+  assert.doesNotMatch(css, /^(p|h1|figcaption|nav[^{]*) \{[^}]*text-indent/m);
 }
 assert.deepEqual(
   validateBook({ title: "x", items: [{ type: "image", name: "a.bmp", mimeType: "image/jpeg", data: new TextEncoder().encode("BM....") }] }),

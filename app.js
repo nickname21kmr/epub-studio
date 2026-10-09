@@ -7,6 +7,7 @@ function emptyBook() {
     language: "zh-CN",
     publisher: "",
     description: "",
+    paragraphIndent: null,
     identifier: "",
     coverItemId: null,
     items: [],
@@ -20,6 +21,7 @@ const elements = {
   author: document.querySelector("#book-author"),
   language: document.querySelector("#book-language"),
   publisher: document.querySelector("#book-publisher"),
+  indent: document.querySelector("#book-indent"),
   description: document.querySelector("#book-description"),
   list: document.querySelector("#content-list"),
   empty: document.querySelector("#empty-state"),
@@ -77,6 +79,7 @@ function syncBookFromFields() {
   state.author = elements.author.value.trim();
   state.language = elements.language.value;
   state.publisher = elements.publisher.value.trim();
+  state.paragraphIndent = { on: true, off: false }[elements.indent.value] ?? null;
   state.description = elements.description.value.trim();
 }
 
@@ -90,6 +93,7 @@ function syncFieldsFromBook() {
   }
   elements.language.value = language;
   elements.publisher.value = state.publisher || "";
+  elements.indent.value = state.paragraphIndent === true ? "on" : state.paragraphIndent === false ? "off" : "auto";
   elements.description.value = state.description || "";
 }
 

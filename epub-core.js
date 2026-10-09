@@ -287,7 +287,7 @@ function markdownToXhtml(markdown = "") {
       flushParagraph();
       closeList();
       flushQuote();
-      output.push("<hr />");
+      output.push('<hr class="scene-break" />');
     } else if (unordered || ordered) {
       flushParagraph();
       flushQuote();
@@ -435,6 +435,10 @@ function buildEpub(book, options = {}) {
   const publisher = cleanText(book.publisher);
   const description = cleanText(book.description);
   const language = cleanText(book.language) || "zh-CN";
+  // Chinese and Japanese prose indents paragraphs by two characters unless turned off.
+  const indent = book.paragraphIndent === undefined || book.paragraphIndent === null
+    ? /^(zh|ja)(-|$)/i.test(language)
+    : Boolean(book.paragraphIndent);
   const identifier = cleanText(book.identifier) || cleanText(options.identifier) || makeIdentifier();
   const modifiedDate = options.modified === undefined ? new Date() : new Date(options.modified);
   if (Number.isNaN(modifiedDate.getTime())) throw new Error("EPUB 修改时间必须是有效日期");
@@ -458,7 +462,7 @@ function buildEpub(book, options = {}) {
     if (item.type === "text") {
       // showTitle: false hides the visible heading; the <title> stays.
       const heading = item.showTitle === false ? "" : `<h1>${escapeXml(itemTitle)}</h1>\n`;
-      body = `<article class="text-section">\n${heading}${textToXhtml(item)}\n</article>`;
+      body = `<article class="text-section${indent ? " indent" : ""}">\n${heading}${textToXhtml(item)}\n</article>`;
     } else {
       // Keyed by position, not item.id, so images without ids are all kept.
       const data = imageBytes(item);
@@ -556,6 +560,8 @@ body { color: #211f1b; font-family: serif; line-height: 1.75; margin: 6%; }
 h1, h2, h3 { line-height: 1.25; page-break-after: avoid; }
 h1 { font-size: 1.7em; margin: 0 0 1.4em; }
 p { margin: 0 0 1em; text-align: justify; }
+.indent > p { text-indent: 2em; }
+.scene-break { border: 0; border-top: 1px solid #b9b09f; height: 0; margin: 2em auto; width: 30%; }
 blockquote { border-left: .2em solid #988b73; margin: 1.5em 0; padding-left: 1em; }
 pre { background: #f2eee6; overflow-wrap: anywhere; padding: 1em; white-space: pre-wrap; }
 code { font-family: monospace; }
