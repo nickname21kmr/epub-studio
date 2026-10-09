@@ -4,6 +4,8 @@ const path = require("node:path");
 const {
   buildEpub,
   markdownToXhtml,
+  mimeFromFilename,
+  sniffImageType,
   suggestedFilename,
   validateBook,
 } = require("../epub-core.js");
@@ -115,6 +117,49 @@ assert.match(decode("EPUB/package.opf"), /properties="cover-image"/);
 assert.match(decode("EPUB/package.opf"), /测试 &amp; 图文集/);
 assert.match(decode("EPUB/text/section-001.xhtml"), /第一章 &lt;开始&gt;/);
 assert.match(decode("EPUB/text/section-001.xhtml"), /<strong>粗体<\/strong>/);
+
+const fixed = {
+  identifier: "urn:uuid:00000000-0000-4000-8000-000000000002",
+  modified: "2026-08-30T00:00:00Z",
+};
+const unzipText = (data) => {
+  const files = readStoredZip(data);
+  return (name) => new TextDecoder().decode(files.get(name));
+};
+
+// Images are judged by content, kept without ids, and blank titles get defaults.
+assert.equal(sniffImageType(png), "image/png");
+assert.equal(sniffImageType(Uint8Array.from([0xff, 0xd8, 0xff, 0xe0])), "image/jpeg");
+assert.equal(sniffImageType(new TextEncoder().encode("RIFF\0\0\0\0WEBPVP8 ")), "image/webp");
+assert.equal(sniffImageType(new TextEncoder().encode('<?xml version="1.0"?>\n<svg xmlns="http://www.w3.org/2000/svg"/>')), "image/svg+xml");
+assert.equal(sniffImageType(new TextEncoder().encode("BM....")), "");
+assert.equal(mimeFromFilename("插图/01.JPG"), "image/jpeg");
+{
+  const mislabelled = buildEpub({
+    title: "图片",
+    coverItemId: "c",
+    items: [
+      { id: "c", type: "image", name: "a.jpg", mimeType: "image/jpeg", data: png },
+      { type: "image", mimeType: "image/png", data: png },
+      { type: "image", mimeType: "image/png", data: png },
+      { type: "text", title: "  ", content: "x" },
+    ],
+  }, fixed);
+  const read = unzipText(mislabelled);
+  const opf = read("EPUB/package.opf");
+  assert.match(opf, /<item id="image-1" href="images\/image-1.png" media-type="image\/png" properties="cover-image" \/>/);
+  assert.match(opf, /<item id="image-2" href="images\/image-2.png"/);
+  assert.match(opf, /<item id="image-3" href="images\/image-3.png"/);
+  assert.match(read("EPUB/nav.xhtml"), /<a href="text\/section-004.xhtml">章节 4<\/a>/);
+}
+assert.deepEqual(
+  validateBook({ title: "x", items: [{ type: "image", name: "a.bmp", mimeType: "image/jpeg", data: new TextEncoder().encode("BM....") }] }),
+  ["不支持图片格式：a.bmp"],
+);
+assert.deepEqual(
+  validateBook({ title: "x", items: [{ type: "image", name: "空.png", mimeType: "image/png", data: new Uint8Array() }] }),
+  ["图片没有数据：空.png"],
+);
 
 const sampleDirectory = path.resolve(__dirname, "../sample");
 fs.mkdirSync(sampleDirectory, { recursive: true });

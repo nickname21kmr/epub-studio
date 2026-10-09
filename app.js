@@ -43,15 +43,7 @@ function basename(filename) {
 
 function imageMime(file) {
   if (file.type?.startsWith("image/")) return file.type;
-  const extension = file.name.split(".").pop().toLowerCase();
-  return {
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    png: "image/png",
-    gif: "image/gif",
-    webp: "image/webp",
-    svg: "image/svg+xml",
-  }[extension];
+  return EpubCore.mimeFromFilename(file.name);
 }
 
 function formatBytes(size) {
@@ -257,10 +249,12 @@ async function importTextFiles(fileList) {
 async function importImageFiles(fileList) {
   const files = Array.from(fileList).filter((file) => imageMime(file));
   let imported = 0;
+  let coverSet = false;
   for (const file of files) {
-    const mimeType = imageMime(file);
-    if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'].includes(mimeType)) continue;
     const data = new Uint8Array(await file.arrayBuffer());
+    // The real format decides, not the extension (e.g. WebP saved as .jpg).
+    const mimeType = EpubCore.sniffImageType(data);
+    if (!mimeType) continue;
     const item = {
       id: createId("image"),
       type: "image",
@@ -274,10 +268,14 @@ async function importImageFiles(fileList) {
     };
     state.items.push(item);
     imported += 1;
-    if (!state.coverItemId) state.coverItemId = item.id;
+    if (!state.coverItemId) {
+      state.coverItemId = item.id;
+      coverSet = true;
+    }
   }
   renderItems();
-  if (imported) setStatus(`已导入 ${imported} 张图片；第一张已设为封面。`, "success");
+  if (imported) setStatus(`已导入 ${imported} 张图片${coverSet ? "；第一张已设为封面" : ""}。`, "success");
+  else if (files.length) setStatus("图片内容无法识别，只支持 JPG、PNG、GIF、WEBP、SVG。", "error");
   return imported;
 }
 

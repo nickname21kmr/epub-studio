@@ -8,6 +8,15 @@ const MIME_EXTENSIONS = {
   "image/svg+xml": "svg",
 };
 
+const EXTENSION_MIMES = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  gif: "image/gif",
+  webp: "image/webp",
+  svg: "image/svg+xml",
+};
+
 function bytes(value) {
   if (typeof value === "string") return encoder.encode(value);
   if (value instanceof Uint8Array) return value;
@@ -284,8 +293,33 @@ ${body}
 </html>`;
 }
 
-function imageExtension(item) {
-  return MIME_EXTENSIONS[item.mimeType] || String(item.name || "image.jpg").split(".").pop().toLowerCase();
+function mimeFromFilename(name = "") {
+  return EXTENSION_MIMES[String(name).split(".").pop().toLowerCase()] || "";
+}
+
+/** Detect the real image format from its first bytes; "" when unknown. */
+function sniffImageType(value) {
+  const data = bytes(value);
+  const starts = (...signature) => signature.every((byte, index) => byte === null || data[index] === byte);
+  if (starts(0xff, 0xd8, 0xff)) return "image/jpeg";
+  if (starts(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) return "image/png";
+  if (starts(0x47, 0x49, 0x46, 0x38)) return "image/gif";
+  if (starts(0x52, 0x49, 0x46, 0x46, null, null, null, null, 0x57, 0x45, 0x42, 0x50)) return "image/webp";
+  const text = new TextDecoder().decode(data.subarray(0, 4096));
+  if (/^\s*</.test(text) && /<svg[\s>]/.test(text)) return "image/svg+xml";
+  return "";
+}
+
+function imageBytes(item) {
+  try {
+    return bytes(item.data);
+  } catch {
+    return new Uint8Array();
+  }
+}
+
+function cleanText(value) {
+  return String(value ?? "").trim();
 }
 
 function makeIdentifier() {
@@ -315,8 +349,12 @@ function validateBook(book) {
   if (!String(book?.title || "").trim()) errors.push("请填写书名");
   if (!Array.isArray(book?.items) || book.items.length === 0) errors.push("请至少添加一个文本章节或一张图片");
   for (const item of book?.items || []) {
-    if (item.type === "image" && !MIME_EXTENSIONS[item.mimeType]) {
-      errors.push(`不支持图片格式：${item.name || item.mimeType || "未知文件"}`);
+    if (item.type === "image") {
+      const data = imageBytes(item);
+      const label = item.name || item.title || item.mimeType || "未知文件";
+      // Judge by content: downloaded illustrations are often WebP or PNG saved as .jpg.
+      if (!data.length) errors.push(`图片没有数据：${label}`);
+      else if (!sniffImageType(data)) errors.push(`不支持图片格式：${label}`);
     }
     if (item.type !== "text" && item.type !== "image") errors.push("工程中包含未知内容类型");
   }
@@ -328,14 +366,18 @@ function buildEpub(book, options = {}) {
   const errors = validateBook(book);
   if (errors.length) throw new Error(errors.join("；"));
 
-  const title = String(book.title).trim();
-  const author = String(book.author || "").trim();
-  const language = String(book.language || "zh-CN").trim() || "zh-CN";
-  const identifier = String(book.identifier || options.identifier || makeIdentifier());
+  const title = cleanText(book.title);
+  const author = cleanText(book.author);
+  const publisher = cleanText(book.publisher);
+  const description = cleanText(book.description);
+  const language = cleanText(book.language) || "zh-CN";
+  const identifier = cleanText(book.identifier) || cleanText(options.identifier) || makeIdentifier();
   const modifiedDate = options.modified === undefined ? new Date() : new Date(options.modified);
   if (Number.isNaN(modifiedDate.getTime())) throw new Error("EPUB 修改时间必须是有效日期");
   const modified = modifiedDate.toISOString().replace(/\.\d{3}Z$/, "Z");
-  const images = new Map();
+  const hasCover = book.coverItemId !== undefined && book.coverItemId !== null;
+  const images = [];
+  let cover = null;
   const pages = [];
   const manifest = [];
   const spine = [];
@@ -346,18 +388,23 @@ function buildEpub(book, options = {}) {
     const number = index + 1;
     const pageId = `page-${number}`;
     const pageName = `section-${String(number).padStart(3, "0")}.xhtml`;
-    const itemTitle = String(item.title || (item.type === "text" ? `章节 ${number}` : `图片 ${number}`));
+    // A blank title would leave an empty <title> and an empty TOC link.
+    const itemTitle = cleanText(item.title) || (item.type === "text" ? `章节 ${number}` : `图片 ${number}`);
     let body;
 
     if (item.type === "text") {
       body = `<article class="text-section">\n<h1>${escapeXml(itemTitle)}</h1>\n${markdownToXhtml(item.content || "")}\n</article>`;
     } else {
-      const extension = imageExtension(item);
+      // Keyed by position, not item.id, so images without ids are all kept.
+      const data = imageBytes(item);
+      const mimeType = sniffImageType(data);
       const imageId = `image-${number}`;
-      const imageName = `${imageId}.${extension}`;
-      images.set(item.id, { id: imageId, name: imageName, item });
-      entries.push({ name: `EPUB/images/${imageName}`, data: item.data });
-      const alt = escapeXml(item.alt || item.title || "插图");
+      const imageName = `${imageId}.${MIME_EXTENSIONS[mimeType]}`;
+      const image = { id: imageId, name: imageName, mimeType };
+      images.push(image);
+      if (!cover && hasCover && item.id === book.coverItemId) cover = image;
+      entries.push({ name: `EPUB/images/${imageName}`, data });
+      const alt = escapeXml(cleanText(item.alt) || cleanText(item.title) || "插图");
       const caption = String(item.caption || "").trim();
       body = `<figure class="image-section">\n<img src="../images/${imageName}" alt="${alt}" />${caption ? `\n<figcaption>${escapeXml(caption)}</figcaption>` : ""}\n</figure>`;
     }
@@ -372,7 +419,6 @@ function buildEpub(book, options = {}) {
     navItems.push(`<li><a href="text/${pageName}">${escapeXml(itemTitle)}</a></li>`);
   });
 
-  const cover = images.get(book.coverItemId);
   if (cover) {
     entries.push({
       name: "EPUB/text/cover.xhtml",
@@ -387,11 +433,9 @@ function buildEpub(book, options = {}) {
     spine.unshift('<itemref idref="cover-page" linear="yes" />');
   }
 
-  for (const image of images.values()) {
+  for (const image of images) {
     const coverProperty = cover?.id === image.id ? ' properties="cover-image"' : "";
-    manifest.push(
-      `<item id="${image.id}" href="images/${image.name}" media-type="${escapeXml(image.item.mimeType)}"${coverProperty} />`,
-    );
+    manifest.push(`<item id="${image.id}" href="images/${image.name}" media-type="${image.mimeType}"${coverProperty} />`);
   }
 
   const nav = `<?xml version="1.0" encoding="UTF-8"?>
@@ -406,8 +450,8 @@ function buildEpub(book, options = {}) {
     `<dc:title>${escapeXml(title)}</dc:title>`,
     `<dc:language>${escapeXml(language)}</dc:language>`,
     author ? `<dc:creator>${escapeXml(author)}</dc:creator>` : "",
-    book.publisher ? `<dc:publisher>${escapeXml(book.publisher)}</dc:publisher>` : "",
-    book.description ? `<dc:description>${escapeXml(book.description)}</dc:description>` : "",
+    publisher ? `<dc:publisher>${escapeXml(publisher)}</dc:publisher>` : "",
+    description ? `<dc:description>${escapeXml(description)}</dc:description>` : "",
     `<meta property="dcterms:modified">${escapeXml(modified)}</meta>`,
     cover ? `<meta name="cover" content="${cover.id}" />` : "",
   ].filter(Boolean);
@@ -464,6 +508,8 @@ const EpubCore = Object.freeze({
   buildZip,
   escapeXml,
   markdownToXhtml,
+  mimeFromFilename,
+  sniffImageType,
   suggestedFilename,
   validateBook,
 });
