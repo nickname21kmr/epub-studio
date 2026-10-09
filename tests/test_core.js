@@ -69,6 +69,25 @@ assert.match(markdown, /<h1>标题<\/h1>/);
 assert.match(markdown, /&lt;script&gt;bad\(\)&lt;\/script&gt;/);
 assert.match(markdown, /<strong>粗体<\/strong>/);
 
+// Markup must never leak into link targets or break nesting.
+assert.equal(
+  markdownToXhtml("[看这里](https://example.com/a_b_c?x=*y*)"),
+  '<p><a href="https://example.com/a_b_c?x=*y*">看这里</a></p>',
+);
+assert.equal(markdownToXhtml("[**粗** 链接](https://example.com)"), '<p><a href="https://example.com"><strong>粗</strong> 链接</a></p>');
+assert.equal(markdownToXhtml("[`代码`](https://example.com)"), '<p><a href="https://example.com"><code>代码</code></a></p>');
+assert.equal(markdownToXhtml("**a _b** c_"), "<p>**a _b** c_</p>");
+assert.equal(markdownToXhtml("*a **b** c*"), "<p><em>a <strong>b</strong> c</em></p>");
+assert.equal(markdownToXhtml("snake_case_name 与 _强调_"), "<p>snake_case_name 与 <em>强调</em></p>");
+// Characters XML 1.0 cannot carry are dropped instead of producing a broken file.
+assert.equal(markdownToXhtml("甲\u000c乙\u0001丙\u0000CODE0\u0000丁"), "<p>甲乙丙CODE0丁</p>");
+assert.equal(markdownToXhtml("𠀀\ud800"), "<p>𠀀</p>");
+// "* * *" and "- - -" are rules, not list items.
+for (const rule of ["***", "* * *", "- - -", "___"]) {
+  assert.equal(markdownToXhtml(`前文\n\n${rule}\n\n后文`), "<p>前文</p>\n<hr />\n<p>后文</p>");
+}
+assert.equal(markdownToXhtml("- 甲\n- 乙"), "<ul>\n<li>甲</li>\n<li>乙</li>\n</ul>");
+
 const epub = buildEpub(book, {
   identifier: "urn:uuid:00000000-0000-4000-8000-000000000001",
   modified: "2026-08-30T00:00:00Z",

@@ -133,8 +133,12 @@ function buildZip(entries, timestamp = new Date()) {
   return concat([...localParts, centralData, end.data]);
 }
 
+// XML 1.0 forbids most C0 controls, U+FFFE/U+FFFF and unpaired surrogates.
+const INVALID_XML = /[\uD800-\uDBFF][\uDC00-\uDFFF]|[\u0000-\u0008\u000B\u000C\u000E-\u001F\uD800-\uDFFF￾￿]/g;
+
 function escapeXml(value = "") {
   return String(value)
+    .replace(INVALID_XML, (match) => (match.length === 2 ? match : ""))
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
@@ -142,20 +146,37 @@ function escapeXml(value = "") {
     .replaceAll("'", "&apos;");
 }
 
+function balancedTags(html) {
+  const open = [];
+  for (const [, closing, name] of html.matchAll(/<(\/?)(strong|em|del)>/g)) {
+    if (!closing) open.push(name);
+    else if (open.pop() !== name) return false;
+  }
+  return open.length === 0;
+}
+
+// \u0000 marks kept code/link fragments; escapeXml already removed real NULs.
+function emphasis(text) {
+  const html = text
+    .replace(/\*\*([^*\u0000]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/__([^_\u0000]+)__/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*\u0000]+)\*/g, "$1<em>$2</em>")
+    .replace(/(^|[^_\p{L}\p{N}])_([^_\u0000]+)_(?![\p{L}\p{N}])/gu, "$1<em>$2</em>")
+    .replace(/~~([^~\u0000]+)~~/g, "<del>$1</del>");
+  // Overlapping markers such as **a _b** c_ would nest badly; leave them as text.
+  return balancedTags(html) ? html : text;
+}
+
 function inlineMarkdown(source) {
-  let text = escapeXml(source);
-  const code = [];
-  text = text.replace(/`([^`]+)`/g, (_, content) => {
-    const index = code.push(`<code>${content}</code>`) - 1;
-    return `\u0000CODE${index}\u0000`;
-  });
-  text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|mailto:[^\s)]+)\)/g, '<a href="$2">$1</a>');
-  text = text.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-  text = text.replace(/__([^_]+)__/g, "<strong>$1</strong>");
-  text = text.replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>");
-  text = text.replace(/(^|[^_])_([^_]+)_/g, "$1<em>$2</em>");
-  text = text.replace(/~~([^~]+)~~/g, "<del>$1</del>");
-  return text.replace(/\u0000CODE(\d+)\u0000/g, (_, index) => code[Number(index)]);
+  const kept = [];
+  const keep = (html) => `\u0000${kept.push(html) - 1}\u0000`;
+  const restore = (text) => text.replace(/\u0000(\d+)\u0000/g, (_, index) => restore(kept[Number(index)]));
+  let text = escapeXml(source).replace(/`([^`]+)`/g, (_, content) => keep(`<code>${content}</code>`));
+  text = text.replace(
+    /\[([^\]]+)\]\((https?:\/\/[^\s)]+|mailto:[^\s)]+)\)/g,
+    (_, label, href) => keep(`<a href="${href}">${emphasis(label)}</a>`),
+  );
+  return restore(emphasis(text));
 }
 
 /** Convert a conservative Markdown subset to valid XHTML fragments. */
@@ -199,6 +220,8 @@ function markdownToXhtml(markdown = "") {
     }
 
     const heading = /^(#{1,6})\s+(.+)$/.exec(line);
+    // Checked before lists so "* * *" and "- - -" stay rules, not list items.
+    const rule = /^\s*([-*_])(?:\s*\1){2,}\s*$/.test(line);
     const unordered = /^\s*[-*+]\s+(.+)$/.exec(line);
     const ordered = /^\s*\d+[.)]\s+(.+)$/.exec(line);
     const blockquote = /^\s*>\s?(.*)$/.exec(line);
@@ -209,6 +232,11 @@ function markdownToXhtml(markdown = "") {
       flushQuote();
       const level = heading[1].length;
       output.push(`<h${level}>${inlineMarkdown(heading[2])}</h${level}>`);
+    } else if (rule) {
+      flushParagraph();
+      closeList();
+      flushQuote();
+      output.push("<hr />");
     } else if (unordered || ordered) {
       flushParagraph();
       flushQuote();
@@ -223,11 +251,6 @@ function markdownToXhtml(markdown = "") {
       flushParagraph();
       closeList();
       quote.push(blockquote[1]);
-    } else if (/^\s*(---+|___+|\*\*\*+)\s*$/.test(line)) {
-      flushParagraph();
-      closeList();
-      flushQuote();
-      output.push("<hr />");
     } else if (!line.trim()) {
       flushParagraph();
       closeList();
