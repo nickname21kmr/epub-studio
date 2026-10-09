@@ -273,6 +273,15 @@ assert.equal(mimeFromFilename("插图/01.JPG"), "image/jpeg");
   assert.match(css, /^\.scene-break \{/m);
   assert.doesNotMatch(css, /^(p|h1|figcaption|nav[^{]*) \{[^}]*text-indent/m);
 }
+{
+  // Translator is a contributor with the MARC "trl" role; no translator, no metadata.
+  const opf = (book) => unzipText(buildEpub({ title: "译本", items: [{ type: "text", content: "x" }], ...book }, fixed))("EPUB/package.opf");
+  const translated = opf({ author: "原作者", translator: " 译者 & 校对 " });
+  assert.match(translated, /<dc:creator>原作者<\/dc:creator>/);
+  assert.match(translated, /<dc:contributor id="translator">译者 &amp; 校对<\/dc:contributor>/);
+  assert.match(translated, /<meta refines="#translator" property="role" scheme="marc:relators">trl<\/meta>/);
+  assert.doesNotMatch(opf({ translator: "  " }), /translator/);
+}
 assert.deepEqual(
   validateBook({ title: "x", items: [{ type: "image", name: "a.bmp", mimeType: "image/jpeg", data: new TextEncoder().encode("BM....") }] }),
   ["不支持图片格式：a.bmp"],

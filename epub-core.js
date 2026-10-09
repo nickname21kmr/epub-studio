@@ -432,6 +432,7 @@ function buildEpub(book, options = {}) {
 
   const title = cleanText(book.title);
   const author = cleanText(book.author);
+  const translator = cleanText(book.translator);
   const publisher = cleanText(book.publisher);
   const description = cleanText(book.description);
   const language = cleanText(book.language) || "zh-CN";
@@ -528,6 +529,8 @@ function buildEpub(book, options = {}) {
     `<dc:title>${escapeXml(title)}</dc:title>`,
     `<dc:language>${escapeXml(language)}</dc:language>`,
     author ? `<dc:creator>${escapeXml(author)}</dc:creator>` : "",
+    translator ? `<dc:contributor id="translator">${escapeXml(translator)}</dc:contributor>` : "",
+    translator ? '<meta refines="#translator" property="role" scheme="marc:relators">trl</meta>' : "",
     publisher ? `<dc:publisher>${escapeXml(publisher)}</dc:publisher>` : "",
     description ? `<dc:description>${escapeXml(description)}</dc:description>` : "",
     `<meta property="dcterms:modified">${escapeXml(modified)}</meta>`,

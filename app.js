@@ -4,6 +4,7 @@ function emptyBook() {
   return {
     title: "未命名图文集",
     author: "",
+    translator: "",
     language: "zh-CN",
     publisher: "",
     description: "",
@@ -19,6 +20,7 @@ const state = emptyBook();
 const elements = {
   title: document.querySelector("#book-title"),
   author: document.querySelector("#book-author"),
+  translator: document.querySelector("#book-translator"),
   language: document.querySelector("#book-language"),
   publisher: document.querySelector("#book-publisher"),
   indent: document.querySelector("#book-indent"),
@@ -77,6 +79,7 @@ function setStatus(message, kind = "") {
 function syncBookFromFields() {
   state.title = elements.title.value.trim();
   state.author = elements.author.value.trim();
+  state.translator = elements.translator.value.trim();
   state.language = elements.language.value;
   state.publisher = elements.publisher.value.trim();
   state.paragraphIndent = { on: true, off: false }[elements.indent.value] ?? null;
@@ -86,6 +89,7 @@ function syncBookFromFields() {
 function syncFieldsFromBook() {
   elements.title.value = state.title || "";
   elements.author.value = state.author || "";
+  elements.translator.value = state.translator || "";
   const language = state.language || "zh-CN";
   // Keep languages that are not in the list (e.g. "ja-JP" from a project file).
   if (![...elements.language.options].some((option) => option.value === language)) {
