@@ -125,6 +125,8 @@ assert.ok(entries.has("EPUB/nav.xhtml"));
 assert.ok(entries.has("EPUB/styles/book.css"));
 assert.ok(entries.has("EPUB/text/cover.xhtml"));
 assert.ok(entries.has("EPUB/text/section-001.xhtml"));
+// A cover image placed later in the book keeps its own page as well.
+assert.ok(entries.has("EPUB/text/section-002.xhtml"));
 assert.ok(entries.has("EPUB/images/image-2.png"));
 assert.equal(Buffer.compare(Buffer.from(entries.get("EPUB/images/image-2.png")), Buffer.from(png)), 0);
 assert.match(decode("EPUB/package.opf"), /properties="cover-image"/);
@@ -230,6 +232,26 @@ assert.equal(mimeFromFilename("插图/01.JPG"), "image/jpeg");
     ],
   }, fixed));
   assert.match(read("EPUB/nav.xhtml"), /<ol><li><a href="text\/section-001.xhtml">甲<\/a><\/li><\/ol>/);
+}
+{
+  // Cover image as the first item: only the cover page, and the nav points at it.
+  const files = readStoredZip(buildEpub({
+    title: "封面在前",
+    coverItemId: "c",
+    items: [
+      { id: "c", type: "image", title: "", mimeType: "image/png", data: png },
+      { id: "t", type: "text", title: "正文", content: "x" },
+    ],
+  }, fixed));
+  const read = (name) => new TextDecoder().decode(files.get(name));
+  assert.deepEqual([...files.keys()].filter((name) => name.startsWith("EPUB/text/")), [
+    "EPUB/text/section-002.xhtml",
+    "EPUB/text/cover.xhtml",
+  ]);
+  const opf = read("EPUB/package.opf");
+  assert.doesNotMatch(opf, /id="page-1"/);
+  assert.match(opf, /<spine>\n<itemref idref="cover-page" linear="yes" \/>\n<itemref idref="page-2" \/>\n<\/spine>/);
+  assert.match(read("EPUB/nav.xhtml"), /<ol><li><a href="text\/cover.xhtml">封面<\/a><\/li>\n<li><a href="text\/section-002.xhtml">正文<\/a><\/li><\/ol>/);
 }
 assert.deepEqual(
   validateBook({ title: "x", items: [{ type: "image", name: "a.bmp", mimeType: "image/jpeg", data: new TextEncoder().encode("BM....") }] }),

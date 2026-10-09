@@ -469,6 +469,11 @@ function buildEpub(book, options = {}) {
       images.push(image);
       if (!cover && hasCover && item.id === book.coverItemId) cover = image;
       entries.push({ name: `EPUB/images/${imageName}`, data });
+      if (index === 0 && cover === image) {
+        // The cover page already opens the book with this image; no second copy.
+        navEntries.push({ href: "text/cover.xhtml", title: cleanText(item.title) || "封面", listed: item.toc !== false });
+        return;
+      }
       const alt = escapeXml(cleanText(item.alt) || cleanText(item.title) || "插图");
       const caption = String(item.caption || "").trim();
       body = `<figure class="image-section">\n<img src="../images/${imageName}" alt="${alt}" />${caption ? `\n<figcaption>${escapeXml(caption)}</figcaption>` : ""}\n</figure>`;
