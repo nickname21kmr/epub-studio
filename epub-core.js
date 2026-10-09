@@ -188,6 +188,31 @@ function inlineMarkdown(source) {
   return restore(emphasis(text));
 }
 
+// Han, kana, bopomofo, CJK punctuation and fullwidth forms. Hangul is left out: Korean uses spaces.
+const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Bopomofo}　-〿゠-ヿ︰-﹏＀-￯]/u;
+// Quotes, dashes and ellipses are shared with Western text; they follow their neighbours.
+const CJK_SHARED = /[·—―‘’“”…]/;
+
+function cjkJoin(before, after) {
+  const nearest = (chars) => chars.find((char) => !CJK_SHARED.test(char)) || "";
+  const left = nearest(Array.from(before.slice(-32)).reverse());
+  const right = nearest(Array.from(after.slice(0, 32)));
+  if (!left && !right) return false;
+  return (!left || CJK.test(left)) && (!right || CJK.test(right));
+}
+
+/** Join soft-wrapped lines: nothing between CJK characters, a space otherwise. */
+function joinLines(lines) {
+  let text = "";
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (text) text += cjkJoin(text, line) ? "" : " ";
+    text += line;
+  }
+  return text;
+}
+
 /** Convert a conservative Markdown subset to valid XHTML fragments. */
 function markdownToXhtml(markdown = "") {
   const lines = String(markdown).replaceAll("\r\n", "\n").replaceAll("\r", "\n").split("\n");
@@ -199,7 +224,7 @@ function markdownToXhtml(markdown = "") {
   let codeLines = [];
 
   const flushParagraph = () => {
-    if (paragraph.length) output.push(`<p>${inlineMarkdown(paragraph.join(" "))}</p>`);
+    if (paragraph.length) output.push(`<p>${inlineMarkdown(joinLines(paragraph))}</p>`);
     paragraph = [];
   };
   const closeList = () => {
@@ -207,7 +232,7 @@ function markdownToXhtml(markdown = "") {
     listType = null;
   };
   const flushQuote = () => {
-    if (quote.length) output.push(`<blockquote><p>${inlineMarkdown(quote.join(" "))}</p></blockquote>`);
+    if (quote.length) output.push(`<blockquote><p>${inlineMarkdown(joinLines(quote))}</p></blockquote>`);
     quote = [];
   };
 

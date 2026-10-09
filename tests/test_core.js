@@ -90,6 +90,18 @@ for (const rule of ["***", "* * *", "- - -", "___"]) {
 }
 assert.equal(markdownToXhtml("- 甲\n- 乙"), "<ul>\n<li>甲</li>\n<li>乙</li>\n</ul>");
 
+// Soft line breaks: no space between CJK characters, a space elsewhere.
+assert.equal(markdownToXhtml("第一行\n第二行"), "<p>第一行第二行</p>");
+assert.equal(markdownToXhtml("ひらがなの\nカタカナ。\n（注）"), "<p>ひらがなのカタカナ。（注）</p>");
+assert.equal(markdownToXhtml("他说：“走吧。”\n然后……\n——没有回头"), "<p>他说：“走吧。”然后……——没有回头</p>");
+assert.equal(markdownToXhtml("……\n他沉默了"), "<p>……他沉默了</p>");
+assert.equal(markdownToXhtml("He said “hi”\n“yes”"), "<p>He said “hi” “yes”</p>");
+assert.equal(markdownToXhtml("Hello\nworld"), "<p>Hello world</p>");
+assert.equal(markdownToXhtml("中文\nEnglish\n中文"), "<p>中文 English 中文</p>");
+assert.equal(markdownToXhtml("𠀀\n𠀁"), "<p>𠀀𠀁</p>");
+assert.equal(markdownToXhtml("한국어\n문장"), "<p>한국어 문장</p>");
+assert.equal(markdownToXhtml("> 引用第一行\n> 第二行"), "<blockquote><p>引用第一行第二行</p></blockquote>");
+
 const epub = buildEpub(book, {
   identifier: "urn:uuid:00000000-0000-4000-8000-000000000001",
   modified: "2026-08-30T00:00:00Z",
