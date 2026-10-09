@@ -157,7 +157,7 @@ function buildZip(entries, timestamp = new Date()) {
 }
 
 // XML 1.0 forbids most C0 controls, U+FFFE/U+FFFF and unpaired surrogates.
-const INVALID_XML = /[\uD800-\uDBFF][\uDC00-\uDFFF]|[\u0000-\u0008\u000B\u000C\u000E-\u001F\uD800-\uDFFF￾￿]/g;
+const INVALID_XML = /[\uD800-\uDBFF][\uDC00-\uDFFF]|[\u0000-\u0008\u000B\u000C\u000E-\u001F\uD800-\uDFFF\uFFFE\uFFFF]/g;
 
 function xmlChars(value) {
   return String(value).replace(INVALID_XML, (match) => (match.length === 2 ? match : ""));
@@ -206,9 +206,9 @@ function inlineMarkdown(source) {
 }
 
 // Han, kana, bopomofo, CJK punctuation and fullwidth forms. Hangul is left out: Korean uses spaces.
-const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Bopomofo}　-〿゠-ヿ︰-﹏＀-￯]/u;
+const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Bopomofo}\u3000-\u303F\u30A0-\u30FF\uFE30-\uFE4F\uFF00-\uFFEF]/u;
 // Quotes, dashes and ellipses are shared with Western text; they follow their neighbours.
-const CJK_SHARED = /[·—―‘’“”…]/;
+const CJK_SHARED = /[\u00B7\u2014\u2015\u2018\u2019\u201C\u201D\u2026]/;
 
 function cjkJoin(before, after) {
   const nearest = (chars) => chars.find((char) => !CJK_SHARED.test(char)) || "";
