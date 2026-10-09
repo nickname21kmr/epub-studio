@@ -135,6 +135,7 @@ main { margin: 0 auto; max-width: 1440px; padding: 0 42px 60px; }
 .field > span b { color: var(--rust); }
 .field > span small { color: var(--muted); font-weight: 400; letter-spacing: 0; }
 .field-row { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; }
+.title-row { grid-template-columns: 1fr 9em; }
 input, textarea, select {
   background: transparent;
   border: 0;

@@ -94,7 +94,7 @@
             </button>
           </div>
 
-          <input id="text-files" type="file" accept=".txt,.md,text/plain,text/markdown" multiple hidden />
+          <input id="text-files" type="file" accept=".txt,.md,.markdown,text/plain,text/markdown" multiple hidden />
           <input id="image-files" type="file" accept="image/jpeg,image/png,image/gif,image/webp,image/svg+xml" multiple hidden />
           <input id="project-file" type="file" accept=".json,.epubproj.json,application/json" hidden />
 
@@ -130,12 +130,21 @@
           <div><p>NEW CHAPTER</p><h2>新建文字章节</h2></div>
           <button class="icon-button" value="cancel" aria-label="关闭" formnovalidate>×</button>
         </div>
+        <div class="field-row title-row">
+          <label class="field">
+            <span>章节标题</span>
+            <input id="chapter-title" type="text" value="新章节" required maxlength="120" />
+          </label>
+          <label class="field">
+            <span>正文格式</span>
+            <select id="chapter-format">
+              <option value="markdown">Markdown</option>
+              <option value="plain">纯文本</option>
+            </select>
+          </label>
+        </div>
         <label class="field">
-          <span>章节标题</span>
-          <input id="chapter-title" type="text" value="新章节" required maxlength="120" />
-        </label>
-        <label class="field">
-          <span>正文 <small>支持标题、列表、粗体、引用等基础 Markdown</small></span>
+          <span>正文 <small>Markdown 支持标题、列表、粗体、引用；纯文本每行一段</small></span>
           <textarea id="chapter-content" rows="13" placeholder="# 小标题&#10;&#10;从这里开始写作……" required></textarea>
         </label>
         <div class="dialog-actions">

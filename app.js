@@ -27,6 +27,7 @@ const elements = {
   textDialog: document.querySelector("#text-dialog"),
   textForm: document.querySelector("#text-form"),
   chapterTitle: document.querySelector("#chapter-title"),
+  chapterFormat: document.querySelector("#chapter-format"),
   chapterContent: document.querySelector("#chapter-content"),
   textSubmit: document.querySelector("#text-submit-button"),
   template: document.querySelector("#item-template"),
@@ -39,6 +40,15 @@ function createId(prefix = "item") {
 
 function basename(filename) {
   return filename.replace(/\.[^.]+$/, "") || filename;
+}
+
+function isTextFile(file) {
+  return /\.(txt|md|markdown)$/i.test(file.name) || file.type.startsWith("text/");
+}
+
+// .md stays Markdown; .txt and other text files are plain text.
+function textFormat(file) {
+  return /\.(md|markdown)$/i.test(file.name) || file.type === "text/markdown" ? "markdown" : "plain";
 }
 
 function imageMime(file) {
@@ -142,15 +152,17 @@ function renderItems() {
     fields.append(title);
 
     if (item.type === "text") {
+      const plain = item.format === "plain";
       preview.textContent = "¶";
       const excerpt = document.createElement("button");
       excerpt.type = "button";
       excerpt.className = "content-excerpt";
-      excerpt.textContent = String(item.content || "").replace(/[#*_>`~-]/g, "").replace(/\s+/g, " ").trim() || "空章节，点击编辑正文";
+      const content = String(item.content || "");
+      excerpt.textContent = (plain ? content : content.replace(/[#*_>`~-]/g, "")).replace(/\s+/g, " ").trim() || "空章节，点击编辑正文";
       excerpt.title = "点击编辑正文";
       excerpt.addEventListener("click", () => openTextDialog(item));
       fields.append(excerpt);
-      addMeta(fields, `文字章节 · ${String(item.content || "").replace(/\s/g, "").length.toLocaleString("zh-CN")} 字`);
+      addMeta(fields, `文字章节 · ${plain ? "纯文本" : "Markdown"} · ${content.replace(/\s/g, "").length.toLocaleString("zh-CN")} 字`);
       actions.append(makeButton("编辑正文", "edit-item", () => openTextDialog(item)));
     } else {
       const image = document.createElement("img");
@@ -223,6 +235,7 @@ function renderItems() {
 function openTextDialog(item = null) {
   elements.textForm.dataset.editingId = item?.id || "";
   elements.chapterTitle.value = item?.title || `第 ${state.items.filter((entry) => entry.type === "text").length + 1} 章`;
+  elements.chapterFormat.value = item?.format === "plain" ? "plain" : "markdown";
   elements.chapterContent.value = item?.content || "";
   elements.textDialog.querySelector(".dialog-heading h2").textContent = item ? "编辑文字章节" : "新建文字章节";
   elements.textSubmit.textContent = item ? "保存修改" : "加入书稿";
@@ -231,12 +244,13 @@ function openTextDialog(item = null) {
 }
 
 async function importTextFiles(fileList) {
-  const files = Array.from(fileList).filter((file) => /\.(txt|md)$/i.test(file.name) || file.type.startsWith("text/"));
+  const files = Array.from(fileList).filter(isTextFile);
   for (const file of files) {
     state.items.push({
       id: createId("text"),
       type: "text",
       title: basename(file.name),
+      format: textFormat(file),
       content: await file.text(),
       sourceName: file.name,
     });
@@ -283,7 +297,7 @@ async function importMixedFiles(fileList) {
   const files = Array.from(fileList);
   let count = 0;
   for (const file of files) {
-    if (/\.(txt|md)$/i.test(file.name) || file.type.startsWith("text/")) count += await importTextFiles([file]);
+    if (isTextFile(file)) count += await importTextFiles([file]);
     else if (imageMime(file)) count += await importImageFiles([file]);
   }
   if (!count) setStatus("没有找到可导入的 TXT、Markdown 或受支持图片。", "error");
@@ -495,16 +509,18 @@ elements.textForm.addEventListener("submit", (event) => {
     return;
   }
   const title = elements.chapterTitle.value.trim();
+  const format = elements.chapterFormat.value;
   const content = elements.chapterContent.value;
   if (!title || !content.trim()) return;
   const editingId = elements.textForm.dataset.editingId;
   const item = state.items.find((entry) => entry.id === editingId);
   if (item) {
     item.title = title;
+    item.format = format;
     item.content = content;
     setStatus(`已更新“${title}”。`, "success");
   } else {
-    state.items.push({ id: createId("text"), type: "text", title, content });
+    state.items.push({ id: createId("text"), type: "text", title, format, content });
     setStatus(`已加入“${title}”。`, "success");
   }
   elements.textDialog.close();

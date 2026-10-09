@@ -5,6 +5,7 @@ const {
   buildEpub,
   markdownToXhtml,
   mimeFromFilename,
+  plainTextToXhtml,
   sniffImageType,
   suggestedFilename,
   validateBook,
@@ -130,6 +131,17 @@ assert.match(decode("EPUB/package.opf"), /测试 &amp; 图文集/);
 assert.match(decode("EPUB/text/section-001.xhtml"), /第一章 &lt;开始&gt;/);
 assert.match(decode("EPUB/text/section-001.xhtml"), /<strong>粗体<\/strong>/);
 
+// Plain text: one <p> per line, no Markdown, scene-break lines become <hr>.
+assert.equal(
+  plainTextToXhtml("　　第一段 **不是粗体** <b>\r\n\r\n  # 不是标题\n……\n- 不是列表\n"),
+  "<p>第一段 **不是粗体** &lt;b&gt;</p>\n<p># 不是标题</p>\n<p>……</p>\n<p>- 不是列表</p>",
+);
+for (const marker of ["***", "* * *", "---", "◇◇◇", "◆◆◆", "＊＊＊", "＊　＊　＊", "◇"]) {
+  assert.equal(plainTextToXhtml(`前\n${marker}\n后`), '<p>前</p>\n<hr class="scene-break" />\n<p>后</p>', marker);
+}
+assert.equal(plainTextToXhtml("——\n**"), "<p>——</p>\n<p>**</p>");
+assert.equal(plainTextToXhtml("甲\u0001\n\u0001\n乙"), "<p>甲</p>\n<p>乙</p>");
+
 const fixed = {
   identifier: "urn:uuid:00000000-0000-4000-8000-000000000002",
   modified: "2026-08-30T00:00:00Z",
@@ -163,6 +175,18 @@ assert.equal(mimeFromFilename("插图/01.JPG"), "image/jpeg");
   assert.match(opf, /<item id="image-2" href="images\/image-2.png"/);
   assert.match(opf, /<item id="image-3" href="images\/image-3.png"/);
   assert.match(read("EPUB/nav.xhtml"), /<a href="text\/section-004.xhtml">章节 4<\/a>/);
+}
+{
+  // format: "plain" uses plain text; items without format stay Markdown.
+  const read = unzipText(buildEpub({
+    title: "格式",
+    items: [
+      { type: "text", title: "纯文本", format: "plain", content: "**原样**\n◇◇◇\n下一行" },
+      { type: "text", title: "旧工程", content: "**粗体**" },
+    ],
+  }, fixed));
+  assert.match(read("EPUB/text/section-001.xhtml"), /<p>\*\*原样\*\*<\/p>\n<hr class="scene-break" \/>\n<p>下一行<\/p>/);
+  assert.match(read("EPUB/text/section-002.xhtml"), /<p><strong>粗体<\/strong><\/p>/);
 }
 assert.deepEqual(
   validateBook({ title: "x", items: [{ type: "image", name: "a.bmp", mimeType: "image/jpeg", data: new TextEncoder().encode("BM....") }] }),

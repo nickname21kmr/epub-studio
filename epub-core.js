@@ -145,9 +145,12 @@ function buildZip(entries, timestamp = new Date()) {
 // XML 1.0 forbids most C0 controls, U+FFFE/U+FFFF and unpaired surrogates.
 const INVALID_XML = /[\uD800-\uDBFF][\uDC00-\uDFFF]|[\u0000-\u0008\u000B\u000C\u000E-\u001F\uD800-\uDFFF￾￿]/g;
 
+function xmlChars(value) {
+  return String(value).replace(INVALID_XML, (match) => (match.length === 2 ? match : ""));
+}
+
 function escapeXml(value = "") {
-  return String(value)
-    .replace(INVALID_XML, (match) => (match.length === 2 ? match : ""))
+  return xmlChars(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
@@ -303,6 +306,28 @@ function markdownToXhtml(markdown = "") {
   return output.join("\n");
 }
 
+// A line made only of these marks is a scene break: "***", "* * *", "---", "◇◇◇", "＊＊＊".
+function isSceneBreak(line) {
+  const marks = line.replace(/\s+/g, "");
+  if (/^[◇◆◈○●◎☆★※⁂]+$/.test(marks)) return true;
+  return marks.length >= 3 && /^[*＊\-－—―=＝~～_#＃]+$/.test(marks);
+}
+
+/** Plain text is not Markdown: every non-empty line is one paragraph. */
+function plainTextToXhtml(text = "") {
+  return xmlChars(text)
+    .split(/\r\n|\r|\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => (isSceneBreak(line) ? '<hr class="scene-break" />' : `<p>${escapeXml(line)}</p>`))
+    .join("\n");
+}
+
+function textToXhtml(item) {
+  // Items saved before "format" existed are Markdown.
+  return item.format === "plain" ? plainTextToXhtml(item.content || "") : markdownToXhtml(item.content || "");
+}
+
 function xhtmlDocument(title, body, bodyClass = "", language = "zh-CN") {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
@@ -418,7 +443,7 @@ function buildEpub(book, options = {}) {
     let body;
 
     if (item.type === "text") {
-      body = `<article class="text-section">\n<h1>${escapeXml(itemTitle)}</h1>\n${markdownToXhtml(item.content || "")}\n</article>`;
+      body = `<article class="text-section">\n<h1>${escapeXml(itemTitle)}</h1>\n${textToXhtml(item)}\n</article>`;
     } else {
       // Keyed by position, not item.id, so images without ids are all kept.
       const data = imageBytes(item);
@@ -534,6 +559,7 @@ const EpubCore = Object.freeze({
   escapeXml,
   markdownToXhtml,
   mimeFromFilename,
+  plainTextToXhtml,
   sniffImageType,
   suggestedFilename,
   validateBook,
