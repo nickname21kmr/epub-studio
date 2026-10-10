@@ -1,20 +1,29 @@
 /* global EpubCore */
 
-const state = {
-  title: "未命名图文集",
-  author: "",
-  language: "zh-CN",
-  publisher: "",
-  description: "",
-  coverItemId: null,
-  items: [],
-};
+function emptyBook() {
+  return {
+    title: "未命名图文集",
+    author: "",
+    translator: "",
+    language: "zh-CN",
+    publisher: "",
+    description: "",
+    paragraphIndent: null,
+    identifier: "",
+    coverItemId: null,
+    items: [],
+  };
+}
+
+const state = emptyBook();
 
 const elements = {
   title: document.querySelector("#book-title"),
   author: document.querySelector("#book-author"),
+  translator: document.querySelector("#book-translator"),
   language: document.querySelector("#book-language"),
   publisher: document.querySelector("#book-publisher"),
+  indent: document.querySelector("#book-indent"),
   description: document.querySelector("#book-description"),
   list: document.querySelector("#content-list"),
   empty: document.querySelector("#empty-state"),
@@ -27,6 +36,7 @@ const elements = {
   textDialog: document.querySelector("#text-dialog"),
   textForm: document.querySelector("#text-form"),
   chapterTitle: document.querySelector("#chapter-title"),
+  chapterFormat: document.querySelector("#chapter-format"),
   chapterContent: document.querySelector("#chapter-content"),
   textSubmit: document.querySelector("#text-submit-button"),
   template: document.querySelector("#item-template"),
@@ -41,17 +51,18 @@ function basename(filename) {
   return filename.replace(/\.[^.]+$/, "") || filename;
 }
 
+function isTextFile(file) {
+  return /\.(txt|md|markdown)$/i.test(file.name) || file.type.startsWith("text/");
+}
+
+// .md stays Markdown; .txt and other text files are plain text.
+function textFormat(file) {
+  return /\.(md|markdown)$/i.test(file.name) || file.type === "text/markdown" ? "markdown" : "plain";
+}
+
 function imageMime(file) {
   if (file.type?.startsWith("image/")) return file.type;
-  const extension = file.name.split(".").pop().toLowerCase();
-  return {
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    png: "image/png",
-    gif: "image/gif",
-    webp: "image/webp",
-    svg: "image/svg+xml",
-  }[extension];
+  return EpubCore.mimeFromFilename(file.name);
 }
 
 function formatBytes(size) {
@@ -68,16 +79,25 @@ function setStatus(message, kind = "") {
 function syncBookFromFields() {
   state.title = elements.title.value.trim();
   state.author = elements.author.value.trim();
+  state.translator = elements.translator.value.trim();
   state.language = elements.language.value;
   state.publisher = elements.publisher.value.trim();
+  state.paragraphIndent = { on: true, off: false }[elements.indent.value] ?? null;
   state.description = elements.description.value.trim();
 }
 
 function syncFieldsFromBook() {
   elements.title.value = state.title || "";
   elements.author.value = state.author || "";
-  elements.language.value = state.language || "zh-CN";
+  elements.translator.value = state.translator || "";
+  const language = state.language || "zh-CN";
+  // Keep languages that are not in the list (e.g. "ja-JP" from a project file).
+  if (![...elements.language.options].some((option) => option.value === language)) {
+    elements.language.add(new Option(language, language));
+  }
+  elements.language.value = language;
   elements.publisher.value = state.publisher || "";
+  elements.indent.value = state.paragraphIndent === true ? "on" : state.paragraphIndent === false ? "off" : "auto";
   elements.description.value = state.description || "";
 }
 
@@ -124,6 +144,17 @@ function addMeta(fields, text) {
   return meta;
 }
 
+function addToggle(container, label, checked, onChange) {
+  const wrapper = document.createElement("label");
+  wrapper.className = "item-toggle";
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.checked = checked;
+  input.addEventListener("change", () => onChange(input.checked));
+  wrapper.append(input, label);
+  container.append(wrapper);
+}
+
 let draggedId = null;
 
 function renderItems() {
@@ -150,15 +181,17 @@ function renderItems() {
     fields.append(title);
 
     if (item.type === "text") {
+      const plain = item.format === "plain";
       preview.textContent = "¶";
       const excerpt = document.createElement("button");
       excerpt.type = "button";
       excerpt.className = "content-excerpt";
-      excerpt.textContent = String(item.content || "").replace(/[#*_>`~-]/g, "").replace(/\s+/g, " ").trim() || "空章节，点击编辑正文";
+      const content = String(item.content || "");
+      excerpt.textContent = (plain ? content : content.replace(/[#*_>`~-]/g, "")).replace(/\s+/g, " ").trim() || "空章节，点击编辑正文";
       excerpt.title = "点击编辑正文";
       excerpt.addEventListener("click", () => openTextDialog(item));
       fields.append(excerpt);
-      addMeta(fields, `文字章节 · ${String(item.content || "").replace(/\s/g, "").length.toLocaleString("zh-CN")} 字`);
+      addMeta(fields, `文字章节 · ${plain ? "纯文本" : "Markdown"} · ${content.replace(/\s/g, "").length.toLocaleString("zh-CN")} 字`);
       actions.append(makeButton("编辑正文", "edit-item", () => openTextDialog(item)));
     } else {
       const image = document.createElement("img");
@@ -188,6 +221,19 @@ function renderItems() {
         }),
       );
     }
+
+    // Off for continuation segments of a chapter that is split by illustrations.
+    const options = document.createElement("div");
+    options.className = "item-options";
+    addToggle(options, "列入目录", item.toc !== false, (checked) => {
+      item.toc = checked;
+    });
+    if (item.type === "text") {
+      addToggle(options, "显示标题", item.showTitle !== false, (checked) => {
+        item.showTitle = checked;
+      });
+    }
+    fields.append(options);
 
     actions.append(makeButton("上移", "move-item", () => moveItem(item.id, -1)));
     actions.append(makeButton("下移", "move-item", () => moveItem(item.id, 1)));
@@ -231,6 +277,7 @@ function renderItems() {
 function openTextDialog(item = null) {
   elements.textForm.dataset.editingId = item?.id || "";
   elements.chapterTitle.value = item?.title || `第 ${state.items.filter((entry) => entry.type === "text").length + 1} 章`;
+  elements.chapterFormat.value = item?.format === "plain" ? "plain" : "markdown";
   elements.chapterContent.value = item?.content || "";
   elements.textDialog.querySelector(".dialog-heading h2").textContent = item ? "编辑文字章节" : "新建文字章节";
   elements.textSubmit.textContent = item ? "保存修改" : "加入书稿";
@@ -239,13 +286,15 @@ function openTextDialog(item = null) {
 }
 
 async function importTextFiles(fileList) {
-  const files = Array.from(fileList).filter((file) => /\.(txt|md)$/i.test(file.name) || file.type.startsWith("text/"));
+  const files = Array.from(fileList).filter(isTextFile);
   for (const file of files) {
     state.items.push({
       id: createId("text"),
       type: "text",
       title: basename(file.name),
-      content: await file.text(),
+      format: textFormat(file),
+      // file.text() only reads UTF-8; GBK TXT files would become mojibake.
+      content: EpubCore.decodeText(new Uint8Array(await file.arrayBuffer())),
       sourceName: file.name,
     });
   }
@@ -257,10 +306,12 @@ async function importTextFiles(fileList) {
 async function importImageFiles(fileList) {
   const files = Array.from(fileList).filter((file) => imageMime(file));
   let imported = 0;
+  let coverSet = false;
   for (const file of files) {
-    const mimeType = imageMime(file);
-    if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'].includes(mimeType)) continue;
     const data = new Uint8Array(await file.arrayBuffer());
+    // The real format decides, not the extension (e.g. WebP saved as .jpg).
+    const mimeType = EpubCore.sniffImageType(data);
+    if (!mimeType) continue;
     const item = {
       id: createId("image"),
       type: "image",
@@ -274,10 +325,14 @@ async function importImageFiles(fileList) {
     };
     state.items.push(item);
     imported += 1;
-    if (!state.coverItemId) state.coverItemId = item.id;
+    if (!state.coverItemId) {
+      state.coverItemId = item.id;
+      coverSet = true;
+    }
   }
   renderItems();
-  if (imported) setStatus(`已导入 ${imported} 张图片；第一张已设为封面。`, "success");
+  if (imported) setStatus(`已导入 ${imported} 张图片${coverSet ? "；第一张已设为封面" : ""}。`, "success");
+  else if (files.length) setStatus("图片内容无法识别，只支持 JPG、PNG、GIF、WEBP、SVG。", "error");
   return imported;
 }
 
@@ -285,7 +340,7 @@ async function importMixedFiles(fileList) {
   const files = Array.from(fileList);
   let count = 0;
   for (const file of files) {
-    if (/\.(txt|md)$/i.test(file.name) || file.type.startsWith("text/")) count += await importTextFiles([file]);
+    if (isTextFile(file)) count += await importTextFiles([file]);
     else if (imageMime(file)) count += await importImageFiles([file]);
   }
   if (!count) setStatus("没有找到可导入的 TXT、Markdown 或受支持图片。", "error");
@@ -333,8 +388,14 @@ function serializableBook() {
   };
 }
 
+// One identifier per book, so a re-export updates the same book in readers.
+function ensureIdentifier() {
+  if (!state.identifier) state.identifier = EpubCore.makeIdentifier();
+}
+
 function saveProject() {
   try {
+    ensureIdentifier();
     const project = {
       format: "epub-studio-project",
       version: 1,
@@ -362,7 +423,8 @@ async function openProject(file) {
     throw new Error("这不是受支持的页间工程文件");
   }
   releaseImageUrls();
-  Object.assign(state, project.book);
+  // Start from defaults so fields missing in older projects don't keep the previous book's values.
+  Object.assign(state, emptyBook(), project.book);
   state.items = (project.book.items || []).map((item) => {
     const restored = { ...item };
     if (restored.type === "image") {
@@ -383,6 +445,7 @@ function exportEpub() {
     const errors = EpubCore.validateBook(state);
     if (errors.length) throw new Error(errors.join("；"));
     setStatus("正在装订 EPUB……");
+    ensureIdentifier();
     const epub = EpubCore.buildEpub(state);
     download(epub, EpubCore.suggestedFilename(state.title), "application/epub+zip");
     setStatus(`导出完成：${EpubCore.suggestedFilename(state.title)}（${formatBytes(epub.length)}）`, "success");
@@ -394,15 +457,7 @@ function exportEpub() {
 function clearBook(ask = true) {
   if (ask && state.items.length && !confirm("要清空当前书稿吗？尚未保存的内容将无法恢复。")) return false;
   releaseImageUrls();
-  Object.assign(state, {
-    title: "未命名图文集",
-    author: "",
-    language: "zh-CN",
-    publisher: "",
-    description: "",
-    coverItemId: null,
-    items: [],
-  });
+  Object.assign(state, emptyBook());
   syncFieldsFromBook();
   renderItems();
   setStatus("书稿已清空。", "");
@@ -497,16 +552,18 @@ elements.textForm.addEventListener("submit", (event) => {
     return;
   }
   const title = elements.chapterTitle.value.trim();
+  const format = elements.chapterFormat.value;
   const content = elements.chapterContent.value;
   if (!title || !content.trim()) return;
   const editingId = elements.textForm.dataset.editingId;
   const item = state.items.find((entry) => entry.id === editingId);
   if (item) {
     item.title = title;
+    item.format = format;
     item.content = content;
     setStatus(`已更新“${title}”。`, "success");
   } else {
-    state.items.push({ id: createId("text"), type: "text", title, content });
+    state.items.push({ id: createId("text"), type: "text", title, format, content });
     setStatus(`已加入“${title}”。`, "success");
   }
   elements.textDialog.close();

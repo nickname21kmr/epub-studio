@@ -8,6 +8,15 @@ const MIME_EXTENSIONS = {
   "image/svg+xml": "svg",
 };
 
+const EXTENSION_MIMES = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  gif: "image/gif",
+  webp: "image/webp",
+  svg: "image/svg+xml",
+};
+
 function bytes(value) {
   if (typeof value === "string") return encoder.encode(value);
   if (value instanceof Uint8Array) return value;
@@ -16,6 +25,20 @@ function bytes(value) {
     return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
   }
   throw new TypeError("ZIP 条目必须是字符串或二进制数据");
+}
+
+/** Decode a text file: BOM first, then strict UTF-8, then GB18030 (a superset of GBK). */
+function decodeText(value) {
+  if (typeof value === "string") return value;
+  const data = bytes(value);
+  if (data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf) return new TextDecoder("utf-8").decode(data.subarray(3));
+  if (data[0] === 0xff && data[1] === 0xfe) return new TextDecoder("utf-16le").decode(data.subarray(2));
+  if (data[0] === 0xfe && data[1] === 0xff) return new TextDecoder("utf-16be").decode(data.subarray(2));
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(data);
+  } catch {
+    return new TextDecoder("gb18030").decode(data);
+  }
 }
 
 function concat(parts) {
@@ -133,8 +156,15 @@ function buildZip(entries, timestamp = new Date()) {
   return concat([...localParts, centralData, end.data]);
 }
 
+// XML 1.0 forbids most C0 controls, U+FFFE/U+FFFF and unpaired surrogates.
+const INVALID_XML = /[\uD800-\uDBFF][\uDC00-\uDFFF]|[\u0000-\u0008\u000B\u000C\u000E-\u001F\uD800-\uDFFF\uFFFE\uFFFF]/g;
+
+function xmlChars(value) {
+  return String(value).replace(INVALID_XML, (match) => (match.length === 2 ? match : ""));
+}
+
 function escapeXml(value = "") {
-  return String(value)
+  return xmlChars(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
@@ -142,20 +172,62 @@ function escapeXml(value = "") {
     .replaceAll("'", "&apos;");
 }
 
+function balancedTags(html) {
+  const open = [];
+  for (const [, closing, name] of html.matchAll(/<(\/?)(strong|em|del)>/g)) {
+    if (!closing) open.push(name);
+    else if (open.pop() !== name) return false;
+  }
+  return open.length === 0;
+}
+
+// \u0000 marks kept code/link fragments; escapeXml already removed real NULs.
+function emphasis(text) {
+  const html = text
+    .replace(/\*\*([^*\u0000]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/__([^_\u0000]+)__/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*\u0000]+)\*/g, "$1<em>$2</em>")
+    .replace(/(^|[^_\p{L}\p{N}])_([^_\u0000]+)_(?![\p{L}\p{N}])/gu, "$1<em>$2</em>")
+    .replace(/~~([^~\u0000]+)~~/g, "<del>$1</del>");
+  // Overlapping markers such as **a _b** c_ would nest badly; leave them as text.
+  return balancedTags(html) ? html : text;
+}
+
 function inlineMarkdown(source) {
-  let text = escapeXml(source);
-  const code = [];
-  text = text.replace(/`([^`]+)`/g, (_, content) => {
-    const index = code.push(`<code>${content}</code>`) - 1;
-    return `\u0000CODE${index}\u0000`;
-  });
-  text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|mailto:[^\s)]+)\)/g, '<a href="$2">$1</a>');
-  text = text.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-  text = text.replace(/__([^_]+)__/g, "<strong>$1</strong>");
-  text = text.replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>");
-  text = text.replace(/(^|[^_])_([^_]+)_/g, "$1<em>$2</em>");
-  text = text.replace(/~~([^~]+)~~/g, "<del>$1</del>");
-  return text.replace(/\u0000CODE(\d+)\u0000/g, (_, index) => code[Number(index)]);
+  const kept = [];
+  const keep = (html) => `\u0000${kept.push(html) - 1}\u0000`;
+  const restore = (text) => text.replace(/\u0000(\d+)\u0000/g, (_, index) => restore(kept[Number(index)]));
+  let text = escapeXml(source).replace(/`([^`]+)`/g, (_, content) => keep(`<code>${content}</code>`));
+  text = text.replace(
+    /\[([^\]]+)\]\((https?:\/\/[^\s)]+|mailto:[^\s)]+)\)/g,
+    (_, label, href) => keep(`<a href="${href}">${emphasis(label)}</a>`),
+  );
+  return restore(emphasis(text));
+}
+
+// Han, kana, bopomofo, CJK punctuation and fullwidth forms. Hangul is left out: Korean uses spaces.
+const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Bopomofo}\u3000-\u303F\u30A0-\u30FF\uFE30-\uFE4F\uFF00-\uFFEF]/u;
+// Quotes, dashes and ellipses are shared with Western text; they follow their neighbours.
+const CJK_SHARED = /[\u00B7\u2014\u2015\u2018\u2019\u201C\u201D\u2026]/;
+
+function cjkJoin(before, after) {
+  const nearest = (chars) => chars.find((char) => !CJK_SHARED.test(char)) || "";
+  const left = nearest(Array.from(before.slice(-32)).reverse());
+  const right = nearest(Array.from(after.slice(0, 32)));
+  if (!left && !right) return false;
+  return (!left || CJK.test(left)) && (!right || CJK.test(right));
+}
+
+/** Join soft-wrapped lines: nothing between CJK characters, a space otherwise. */
+function joinLines(lines) {
+  let text = "";
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (text) text += cjkJoin(text, line) ? "" : " ";
+    text += line;
+  }
+  return text;
 }
 
 /** Convert a conservative Markdown subset to valid XHTML fragments. */
@@ -169,7 +241,7 @@ function markdownToXhtml(markdown = "") {
   let codeLines = [];
 
   const flushParagraph = () => {
-    if (paragraph.length) output.push(`<p>${inlineMarkdown(paragraph.join(" "))}</p>`);
+    if (paragraph.length) output.push(`<p>${inlineMarkdown(joinLines(paragraph))}</p>`);
     paragraph = [];
   };
   const closeList = () => {
@@ -177,7 +249,7 @@ function markdownToXhtml(markdown = "") {
     listType = null;
   };
   const flushQuote = () => {
-    if (quote.length) output.push(`<blockquote><p>${inlineMarkdown(quote.join(" "))}</p></blockquote>`);
+    if (quote.length) output.push(`<blockquote><p>${inlineMarkdown(joinLines(quote))}</p></blockquote>`);
     quote = [];
   };
 
@@ -199,6 +271,8 @@ function markdownToXhtml(markdown = "") {
     }
 
     const heading = /^(#{1,6})\s+(.+)$/.exec(line);
+    // Checked before lists so "* * *" and "- - -" stay rules, not list items.
+    const rule = /^\s*([-*_])(?:\s*\1){2,}\s*$/.test(line);
     const unordered = /^\s*[-*+]\s+(.+)$/.exec(line);
     const ordered = /^\s*\d+[.)]\s+(.+)$/.exec(line);
     const blockquote = /^\s*>\s?(.*)$/.exec(line);
@@ -209,6 +283,11 @@ function markdownToXhtml(markdown = "") {
       flushQuote();
       const level = heading[1].length;
       output.push(`<h${level}>${inlineMarkdown(heading[2])}</h${level}>`);
+    } else if (rule) {
+      flushParagraph();
+      closeList();
+      flushQuote();
+      output.push('<hr class="scene-break" />');
     } else if (unordered || ordered) {
       flushParagraph();
       flushQuote();
@@ -223,11 +302,6 @@ function markdownToXhtml(markdown = "") {
       flushParagraph();
       closeList();
       quote.push(blockquote[1]);
-    } else if (/^\s*(---+|___+|\*\*\*+)\s*$/.test(line)) {
-      flushParagraph();
-      closeList();
-      flushQuote();
-      output.push("<hr />");
     } else if (!line.trim()) {
       flushParagraph();
       closeList();
@@ -246,6 +320,28 @@ function markdownToXhtml(markdown = "") {
   return output.join("\n");
 }
 
+// A line made only of these marks is a scene break: "***", "* * *", "---", "◇◇◇", "＊＊＊".
+function isSceneBreak(line) {
+  const marks = line.replace(/\s+/g, "");
+  if (/^[◇◆◈○●◎☆★※⁂]+$/.test(marks)) return true;
+  return marks.length >= 3 && /^[*＊\-－—―=＝~～_#＃]+$/.test(marks);
+}
+
+/** Plain text is not Markdown: every non-empty line is one paragraph. */
+function plainTextToXhtml(text = "") {
+  return xmlChars(text)
+    .split(/\r\n|\r|\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => (isSceneBreak(line) ? '<hr class="scene-break" />' : `<p>${escapeXml(line)}</p>`))
+    .join("\n");
+}
+
+function textToXhtml(item) {
+  // Items saved before "format" existed are Markdown.
+  return item.format === "plain" ? plainTextToXhtml(item.content || "") : markdownToXhtml(item.content || "");
+}
+
 function xhtmlDocument(title, body, bodyClass = "", language = "zh-CN") {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
@@ -261,8 +357,33 @@ ${body}
 </html>`;
 }
 
-function imageExtension(item) {
-  return MIME_EXTENSIONS[item.mimeType] || String(item.name || "image.jpg").split(".").pop().toLowerCase();
+function mimeFromFilename(name = "") {
+  return EXTENSION_MIMES[String(name).split(".").pop().toLowerCase()] || "";
+}
+
+/** Detect the real image format from its first bytes; "" when unknown. */
+function sniffImageType(value) {
+  const data = bytes(value);
+  const starts = (...signature) => signature.every((byte, index) => byte === null || data[index] === byte);
+  if (starts(0xff, 0xd8, 0xff)) return "image/jpeg";
+  if (starts(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) return "image/png";
+  if (starts(0x47, 0x49, 0x46, 0x38)) return "image/gif";
+  if (starts(0x52, 0x49, 0x46, 0x46, null, null, null, null, 0x57, 0x45, 0x42, 0x50)) return "image/webp";
+  const text = new TextDecoder().decode(data.subarray(0, 4096));
+  if (/^\s*</.test(text) && /<svg[\s>]/.test(text)) return "image/svg+xml";
+  return "";
+}
+
+function imageBytes(item) {
+  try {
+    return bytes(item.data);
+  } catch {
+    return new Uint8Array();
+  }
+}
+
+function cleanText(value) {
+  return String(value ?? "").trim();
 }
 
 function makeIdentifier() {
@@ -291,9 +412,18 @@ function validateBook(book) {
   const errors = [];
   if (!String(book?.title || "").trim()) errors.push("请填写书名");
   if (!Array.isArray(book?.items) || book.items.length === 0) errors.push("请至少添加一个文本章节或一张图片");
+  // dc:language and lang attributes must be BCP 47 tags, or EPUBCheck rejects every page.
+  const language = cleanText(book?.language);
+  if (language && !/^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$/.test(language)) {
+    errors.push(`语言代码无效：${language}（例如 zh-CN、ja、en）`);
+  }
   for (const item of book?.items || []) {
-    if (item.type === "image" && !MIME_EXTENSIONS[item.mimeType]) {
-      errors.push(`不支持图片格式：${item.name || item.mimeType || "未知文件"}`);
+    if (item.type === "image") {
+      const data = imageBytes(item);
+      const label = item.name || item.title || item.mimeType || "未知文件";
+      // Judge by content: downloaded illustrations are often WebP or PNG saved as .jpg.
+      if (!data.length) errors.push(`图片没有数据：${label}`);
+      else if (!sniffImageType(data)) errors.push(`不支持图片格式：${label}`);
     }
     if (item.type !== "text" && item.type !== "image") errors.push("工程中包含未知内容类型");
   }
@@ -305,36 +435,56 @@ function buildEpub(book, options = {}) {
   const errors = validateBook(book);
   if (errors.length) throw new Error(errors.join("；"));
 
-  const title = String(book.title).trim();
-  const author = String(book.author || "").trim();
-  const language = String(book.language || "zh-CN").trim() || "zh-CN";
-  const identifier = String(book.identifier || options.identifier || makeIdentifier());
+  const title = cleanText(book.title);
+  const author = cleanText(book.author);
+  const translator = cleanText(book.translator);
+  const publisher = cleanText(book.publisher);
+  const description = cleanText(book.description);
+  const language = cleanText(book.language) || "zh-CN";
+  // Chinese and Japanese prose indents paragraphs by two characters unless turned off.
+  const indent = book.paragraphIndent === undefined || book.paragraphIndent === null
+    ? /^(zh|ja)(-|$)/i.test(language)
+    : Boolean(book.paragraphIndent);
+  const identifier = cleanText(book.identifier) || cleanText(options.identifier) || makeIdentifier();
   const modifiedDate = options.modified === undefined ? new Date() : new Date(options.modified);
   if (Number.isNaN(modifiedDate.getTime())) throw new Error("EPUB 修改时间必须是有效日期");
   const modified = modifiedDate.toISOString().replace(/\.\d{3}Z$/, "Z");
-  const images = new Map();
-  const pages = [];
+  const hasCover = book.coverItemId !== undefined && book.coverItemId !== null;
+  const images = [];
+  let cover = null;
   const manifest = [];
   const spine = [];
-  const navItems = [];
+  const navEntries = [];
   const entries = [];
 
   book.items.forEach((item, index) => {
     const number = index + 1;
     const pageId = `page-${number}`;
     const pageName = `section-${String(number).padStart(3, "0")}.xhtml`;
-    const itemTitle = String(item.title || (item.type === "text" ? `章节 ${number}` : `图片 ${number}`));
+    // A blank title would leave an empty <title> and an empty TOC link.
+    const itemTitle = cleanText(item.title) || (item.type === "text" ? `章节 ${number}` : `图片 ${number}`);
     let body;
 
     if (item.type === "text") {
-      body = `<article class="text-section">\n<h1>${escapeXml(itemTitle)}</h1>\n${markdownToXhtml(item.content || "")}\n</article>`;
+      // showTitle: false hides the visible heading; the <title> stays.
+      const heading = item.showTitle === false ? "" : `<h1>${escapeXml(itemTitle)}</h1>\n`;
+      body = `<article class="text-section${indent ? " indent" : ""}">\n${heading}${textToXhtml(item)}\n</article>`;
     } else {
-      const extension = imageExtension(item);
+      // Keyed by position, not item.id, so images without ids are all kept.
+      const data = imageBytes(item);
+      const mimeType = sniffImageType(data);
       const imageId = `image-${number}`;
-      const imageName = `${imageId}.${extension}`;
-      images.set(item.id, { id: imageId, name: imageName, item });
-      entries.push({ name: `EPUB/images/${imageName}`, data: item.data });
-      const alt = escapeXml(item.alt || item.title || "插图");
+      const imageName = `${imageId}.${MIME_EXTENSIONS[mimeType]}`;
+      const image = { id: imageId, name: imageName, mimeType };
+      images.push(image);
+      if (!cover && hasCover && item.id === book.coverItemId) cover = image;
+      entries.push({ name: `EPUB/images/${imageName}`, data });
+      if (index === 0 && cover === image) {
+        // The cover page already opens the book with this image; no second copy.
+        navEntries.push({ href: "text/cover.xhtml", title: cleanText(item.title) || "封面", listed: item.toc !== false });
+        return;
+      }
+      const alt = escapeXml(cleanText(item.alt) || cleanText(item.title) || "插图");
       const caption = String(item.caption || "").trim();
       body = `<figure class="image-section">\n<img src="../images/${imageName}" alt="${alt}" />${caption ? `\n<figcaption>${escapeXml(caption)}</figcaption>` : ""}\n</figure>`;
     }
@@ -343,13 +493,16 @@ function buildEpub(book, options = {}) {
       name: `EPUB/text/${pageName}`,
       data: xhtmlDocument(itemTitle, body, item.type === "image" ? "image-page" : "text-page", language),
     });
-    pages.push({ id: pageId, name: pageName, title: itemTitle });
     manifest.push(`<item id="${pageId}" href="text/${pageName}" media-type="application/xhtml+xml" />`);
     spine.push(`<itemref idref="${pageId}" />`);
-    navItems.push(`<li><a href="text/${pageName}">${escapeXml(itemTitle)}</a></li>`);
+    navEntries.push({ href: `text/${pageName}`, title: itemTitle, listed: item.toc !== false });
   });
 
-  const cover = images.get(book.coverItemId);
+  // toc: false leaves an item out of the nav, but the nav may not be an empty list.
+  const listed = navEntries.filter((entry) => entry.listed);
+  const navItems = (listed.length ? listed : navEntries.slice(0, 1))
+    .map((entry) => `<li><a href="${entry.href}">${escapeXml(entry.title)}</a></li>`);
+
   if (cover) {
     entries.push({
       name: "EPUB/text/cover.xhtml",
@@ -364,11 +517,9 @@ function buildEpub(book, options = {}) {
     spine.unshift('<itemref idref="cover-page" linear="yes" />');
   }
 
-  for (const image of images.values()) {
+  for (const image of images) {
     const coverProperty = cover?.id === image.id ? ' properties="cover-image"' : "";
-    manifest.push(
-      `<item id="${image.id}" href="images/${image.name}" media-type="${escapeXml(image.item.mimeType)}"${coverProperty} />`,
-    );
+    manifest.push(`<item id="${image.id}" href="images/${image.name}" media-type="${image.mimeType}"${coverProperty} />`);
   }
 
   const nav = `<?xml version="1.0" encoding="UTF-8"?>
@@ -383,8 +534,10 @@ function buildEpub(book, options = {}) {
     `<dc:title>${escapeXml(title)}</dc:title>`,
     `<dc:language>${escapeXml(language)}</dc:language>`,
     author ? `<dc:creator>${escapeXml(author)}</dc:creator>` : "",
-    book.publisher ? `<dc:publisher>${escapeXml(book.publisher)}</dc:publisher>` : "",
-    book.description ? `<dc:description>${escapeXml(book.description)}</dc:description>` : "",
+    translator ? `<dc:contributor id="translator">${escapeXml(translator)}</dc:contributor>` : "",
+    translator ? '<meta refines="#translator" property="role" scheme="marc:relators">trl</meta>' : "",
+    publisher ? `<dc:publisher>${escapeXml(publisher)}</dc:publisher>` : "",
+    description ? `<dc:description>${escapeXml(description)}</dc:description>` : "",
     `<meta property="dcterms:modified">${escapeXml(modified)}</meta>`,
     cover ? `<meta name="cover" content="${cover.id}" />` : "",
   ].filter(Boolean);
@@ -415,6 +568,8 @@ body { color: #211f1b; font-family: serif; line-height: 1.75; margin: 6%; }
 h1, h2, h3 { line-height: 1.25; page-break-after: avoid; }
 h1 { font-size: 1.7em; margin: 0 0 1.4em; }
 p { margin: 0 0 1em; text-align: justify; }
+.indent > p { text-indent: 2em; }
+.scene-break { border: 0; border-top: 1px solid #b9b09f; height: 0; margin: 2em auto; width: 30%; }
 blockquote { border-left: .2em solid #988b73; margin: 1.5em 0; padding-left: 1em; }
 pre { background: #f2eee6; overflow-wrap: anywhere; padding: 1em; white-space: pre-wrap; }
 code { font-family: monospace; }
@@ -439,8 +594,13 @@ nav a { color: inherit; text-decoration: none; }`;
 const EpubCore = Object.freeze({
   buildEpub,
   buildZip,
+  decodeText,
   escapeXml,
+  makeIdentifier,
   markdownToXhtml,
+  mimeFromFilename,
+  plainTextToXhtml,
+  sniffImageType,
   suggestedFilename,
   validateBook,
 });

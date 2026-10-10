@@ -1,0 +1,18 @@
+{
+  "title": "春天的约定",
+  "author": "原作者",
+  "translator": "译者甲",
+  "language": "zh-CN",
+  "publisher": "个人整理",
+  "description": "命令行装订样例：封面在前、纯文本章节、插图把一章分成两段。",
+  "identifier": "urn:uuid:00000000-0000-4000-8000-0000000000c1",
+  "modified": "2026-10-10T00:00:00Z",
+  "coverFile": "images/cover.png",
+  "items": [
+    { "type": "image", "file": "images/cover.png", "title": "封面", "alt": "春天的约定 封面" },
+    { "type": "text", "title": "第一章 春天的约定", "file": "text/01.txt" },
+    { "type": "image", "file": "images/illust-01.jpg", "title": "第一章 插图", "alt": "雨中的告别", "toc": false },
+    { "type": "text", "title": "第一章 春天的约定（续）", "file": "text/01-2.txt", "toc": false, "showTitle": false },
+    { "type": "text", "title": "后记", "content": "感谢阅读。\n\n这一章用 **Markdown** 写成，\n换行处不会多出空格。" }
+  ]
+}
